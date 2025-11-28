@@ -1,3 +1,6 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+
 name: Build and deploy PHP app to Azure Web App - aslaw-back-end
 
 on:
@@ -10,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: read #This is required for actions/checkout
 
     steps:
       - uses: actions/checkout@v4
@@ -19,22 +22,16 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: mbstring, intl, zip
-          coverage: none
 
-      - name: Install Composer dependencies
-        run: |
-          composer install --prefer-dist --no-progress --no-interaction
-          php artisan config:clear || true
-          php artisan cache:clear || true
-          php artisan view:clear || true
+      - name: Check if composer.json exists
+        id: check_files
+        uses: andstor/file-existence-action@v1
+        with:
+          files: 'composer.json'
 
-      - name: Prepare Laravel storage & cache
-        run: |
-          mkdir -p storage/framework/views
-          mkdir -p storage/framework/cache
-          mkdir -p storage/logs
-          chmod -R 777 storage bootstrap/cache
+      - name: Run composer install if composer.json exists
+        if: steps.check_files.outputs.files_exists == 'true'
+        run: composer validate --no-check-publish && composer install --prefer-dist --no-progress
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -46,8 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      id-token: write
-      contents: read
+      id-token: write #This is required for requesting the JWT
+      contents: read #This is required for actions/checkout
 
     steps:
       - name: Download artifact from build job
@@ -61,6 +58,12 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_20917CE239484040B7C6EDC47A3A7D13 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_D0B5268FCC434C56926BCFC3C047879C }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_63619C9565D3491289AACA85ACEF8F97 }}
+
+      # ⬇️ FIX 1 — ensure Laravel has writable storage/cache
+      - name: Fix Laravel permissions
+        run: |
+          chmod -R 775 storage bootstrap/cache || true
+          chmod -R ug+rw storage bootstrap/cache || true
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
