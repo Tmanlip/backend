@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c5c4b978cda00d76ac85978c0b2be940",
+    "content-hash": "de90eff4eb15952080c7ed137e62436e",
     "packages": [
         {
             "name": "brick/math",
@@ -1729,6 +1729,47 @@
                 "source": "https://github.com/thephpleague/flysystem/tree/3.30.1"
             },
             "time": "2025-10-20T15:35:26+00:00"
+        },
+        {
+            "name": "league/flysystem-azure-blob-storage",
+            "version": "3.30.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/thephpleague/flysystem-azure-blob-storage.git",
+                "reference": "731d07713f3541f3f204817117f27d4c7f175c5a"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/thephpleague/flysystem-azure-blob-storage/zipball/731d07713f3541f3f204817117f27d4c7f175c5a",
+                "reference": "731d07713f3541f3f204817117f27d4c7f175c5a",
+                "shasum": ""
+            },
+            "require": {
+                "league/flysystem": "^3.10.0",
+                "microsoft/azure-storage-blob": "^1.1",
+                "php": "^8.0.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "League\\Flysystem\\AzureBlobStorage\\": ""
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Frank de Jonge",
+                    "email": "info@frankdejonge.nl"
+                }
+            ],
+            "support": {
+                "source": "https://github.com/thephpleague/flysystem-azure-blob-storage/tree/3.30.0"
+            },
+            "abandoned": "azure-oss/storage-blob-flysystem",
+            "time": "2025-02-09T18:52:59+00:00"
         },
         {
             "name": "league/flysystem-local",

@@ -1,5 +1,8 @@
 <?php
 
+use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
+use MicrosoftAzure\Storage\Blob\BlobRestProxy;
+
 return [
 
     /*
@@ -60,6 +63,13 @@ return [
             'report' => false,
         ],
 
+        'azure' => [
+            'driver'           => 'azure',
+            'account_name'     => env('AZURE_STORAGE_NAME'),
+            'account_key'      => env('AZURE_STORAGE_KEY'),
+            'container'        => env('AZURE_STORAGE_CONTAINER'),
+            'endpoint_suffix'  => env('AZURE_STORAGE_SUFFIX', 'core.windows.net'),
+        ],
     ],
 
     /*

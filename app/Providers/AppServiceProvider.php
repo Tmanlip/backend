@@ -4,6 +4,10 @@ namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Route;
+use MicrosoftAzure\Storage\Blob\BlobRestProxy;
+use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Filesystem;
+use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
 
 
 class AppServiceProvider extends ServiceProvider
@@ -25,9 +29,27 @@ class AppServiceProvider extends ServiceProvider
         Route::middleware('api')
             ->prefix('api')
             ->group(base_path('routes/api.php'));
-
         Route::middleware('web')
             ->group(base_path('routes/web.php'));
+            
+        Storage::extend('azure', function ($app, $config) {
+
+                $connectionString = sprintf(
+                    'DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=%s',
+                    $config['account_name'],
+                    $config['account_key'],
+                    $config['endpoint_suffix']
+                ); 
+
+                $client = BlobRestProxy::createBlobService($connectionString);
+
+                $adapter = new AzureBlobStorageAdapter(
+                    $client,
+                    $config['container']
+                );
+
+                return new Filesystem($adapter);
+            });
     }
 
     
