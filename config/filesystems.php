@@ -64,11 +64,9 @@ return [
         ],
 
         'azure' => [
-            'driver'           => 'azure',
-            'account_name'     => env('AZURE_STORAGE_NAME'),
-            'account_key'      => env('AZURE_STORAGE_KEY'),
-            'container'        => env('AZURE_STORAGE_CONTAINER'),
-            'endpoint_suffix'  => env('AZURE_STORAGE_SUFFIX', 'core.windows.net'),
+            'driver' => 'azure',
+            'connection_string' => env('AZURE_STORAGE_CONNECTION_STRING'),
+            'container' => env('AZURE_CONTAINER'),
         ],
     ],
 

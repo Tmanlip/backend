@@ -1,58 +1,55 @@
 <?php
 
-namespace App\Providers;
+    namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\Route;
-use MicrosoftAzure\Storage\Blob\BlobRestProxy;
-use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Filesystem;
-use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
+    use Illuminate\Support\ServiceProvider;
+    use Illuminate\Support\Facades\Route;
+    use MicrosoftAzure\Storage\Blob\BlobRestProxy;
+    use Illuminate\Support\Facades\Storage;
+    use League\Flysystem\Filesystem;
+    use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
+    use Illuminate\Filesystem\FilesystemAdapter;
 
 
-class AppServiceProvider extends ServiceProvider
-{
-    /**
-     * Register any application services.
-     */
-    public function register(): void
+    class AppServiceProvider extends ServiceProvider
     {
-        //
-    }
+        /**
+         * Register any application services.
+         */
+        public function register(): void
+        {
+            //
+        }
 
-    /**
-     * Bootstrap any application services.
-     */
-    public function boot(): void
-    {
-        // Load the routes here directly
-        Route::middleware('api')
-            ->prefix('api')
-            ->group(base_path('routes/api.php'));
-        Route::middleware('web')
-            ->group(base_path('routes/web.php'));
-            
-        Storage::extend('azure', function ($app, $config) {
+        /**
+         * Bootstrap any application services.
+         */
+        public function boot(): void
+        {
+            // Load the routes here directly
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/api.php'));
+            Route::middleware('web')
+                ->group(base_path('routes/web.php'));
 
-                $connectionString = sprintf(
-                    'DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=%s',
-                    $config['account_name'],
-                    $config['account_key'],
-                    $config['endpoint_suffix']
-                ); 
-
-                $client = BlobRestProxy::createBlobService($connectionString);
+            Storage::extend('azure', function ($app, $config) {
+                $client = BlobRestProxy::createBlobService(
+                    $config['connection_string']
+                );
 
                 $adapter = new AzureBlobStorageAdapter(
                     $client,
                     $config['container']
                 );
 
-                return new Filesystem($adapter);
-            });
-    }
+                $filesystem = new Filesystem($adapter);
 
-    
-}
+                return new \Illuminate\Filesystem\FilesystemAdapter($filesystem, $adapter, $config);
+            });
+        }
+
+        
+    }
 
 
