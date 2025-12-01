@@ -9,5 +9,10 @@ Route::get('/', function () {
 });
 
 Route::get('/testazure', function () {
-    dd(env('AZURE_STORAGE_CONNECTION_STRING'), env('AZURE_STORAGE_CONTAINER'));
+    try {
+        Storage::disk('azure')->put('tes2t.txt', 'Hello from Laravel!');
+        return 'Azure Blob Storage connection is working.';
+    } catch (\Exception $e) {
+        return 'Error: ' . $e->getMessage();
+    }
 });
