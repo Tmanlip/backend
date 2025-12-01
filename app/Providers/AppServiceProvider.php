@@ -45,10 +45,14 @@
 
                 $filesystem = new Filesystem($adapter);
 
-                return new \Illuminate\Filesystem\FilesystemAdapter($filesystem, $adapter, $config);
+                return new \Illuminate\Filesystem\FilesystemAdapter(
+                    $filesystem,
+                    $adapter,
+                    $config
+                );
             });
-        }
 
+        }
         
     }
 
