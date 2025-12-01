@@ -8,7 +8,6 @@
     use Illuminate\Support\Facades\Storage;
     use League\Flysystem\Filesystem;
     use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
-    use Illuminate\Filesystem\FilesystemAdapter;
 
 
     class AppServiceProvider extends ServiceProvider
@@ -43,13 +42,10 @@
                     $config['container']
                 );
 
-                $filesystem = new Filesystem($adapter);
+                // ⛔ DO NOT wrap in FilesystemAdapter (Laravel v9+ uses Flysystem v3)
+                // ⛔ DO NOT return new FilesystemAdapter(...)
 
-                return new \Illuminate\Filesystem\FilesystemAdapter(
-                    $filesystem,
-                    $adapter,
-                    $config
-                );
+                return new Filesystem($adapter); // ✔ CORRECT
             });
 
         }
