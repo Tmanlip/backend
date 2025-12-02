@@ -46,9 +46,9 @@
                 $filesystem = new Filesystem($adapter);
 
                 return new FilesystemAdapter(
-                    $filesystem,   // Flysystem V3 operator
-                    $adapter,      // Adapter
-                    $config        // disk config
+                    $filesystem,
+                    $adapter,
+                    $config
                 );
             });
 
