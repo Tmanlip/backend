@@ -10,9 +10,13 @@ Route::get('/', function () {
 
 Route::get('/testazure', function () {
     try {
-        Storage::disk('azure')->put('demo.txt', 'Hello from Laravel! This is Tengku Aiman');
-        return 'Azure Blob Storage connection is working.';
-    } catch (\Exception $e) {
-        return 'Error: ' . $e->getMessage();
+        $result = Storage::disk('azure')->put('demo.txt', 'hello azure');
+        return $result ? 'upload success' : 'upload failed';
+    } catch (\Throwable $e) {
+        return $e->getMessage();
     }
+});
+
+Route::get('/debugazure', function () {
+    return config('filesystems.disks.azure');
 });
