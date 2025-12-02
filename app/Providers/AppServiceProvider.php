@@ -33,6 +33,7 @@
                 ->group(base_path('routes/web.php'));
 
             Storage::extend('azure', function ($app, $config) {
+
                 $client = BlobRestProxy::createBlobService(
                     $config['connection_string']
                 );
@@ -42,10 +43,15 @@
                     $config['container']
                 );
 
-                // ⛔ DO NOT wrap in FilesystemAdapter (Laravel v9+ uses Flysystem v3)
-                // ⛔ DO NOT return new FilesystemAdapter(...)
+                // Create Flysystem instance
+                $flysystem = new \League\Flysystem\Filesystem($adapter);
 
-                return new Filesystem($adapter); // ✔ CORRECT
+                // Return Laravel FilesystemAdapter (correct v10+ constructor)
+                return new \Illuminate\Filesystem\FilesystemAdapter(
+                    $flysystem,
+                    $adapter,
+                    $config
+                );
             });
 
         }
