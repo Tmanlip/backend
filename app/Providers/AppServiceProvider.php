@@ -7,6 +7,7 @@
     use MicrosoftAzure\Storage\Blob\BlobRestProxy;
     use Illuminate\Support\Facades\Storage;
     use League\Flysystem\Filesystem;
+    use Illuminate\Filesystem\FilesystemAdapter;
     use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
 
     class AppServiceProvider extends ServiceProvider
@@ -32,6 +33,7 @@
                 ->group(base_path('routes/web.php'));
 
             Storage::extend('azure', function ($app, $config) {
+
                 $client = BlobRestProxy::createBlobService(
                     $config['connection_string']
                 );
@@ -41,7 +43,13 @@
                     $config['container']
                 );
 
-                return new Filesystem($adapter);
+                $filesystem = new Filesystem($adapter);
+
+                return new FilesystemAdapter(
+                    $filesystem,   // Flysystem V3 operator
+                    $adapter,      // Adapter
+                    $config        // disk config
+                );
             });
 
         }
