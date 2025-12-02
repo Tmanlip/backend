@@ -9,7 +9,6 @@
     use League\Flysystem\Filesystem;
     use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
 
-
     class AppServiceProvider extends ServiceProvider
     {
         /**
@@ -33,7 +32,6 @@
                 ->group(base_path('routes/web.php'));
 
             Storage::extend('azure', function ($app, $config) {
-
                 $client = BlobRestProxy::createBlobService(
                     $config['connection_string']
                 );
@@ -43,15 +41,7 @@
                     $config['container']
                 );
 
-                // Create Flysystem instance
-                $flysystem = new \League\Flysystem\Filesystem($adapter);
-
-                // Return Laravel FilesystemAdapter (correct v10+ constructor)
-                return new \Illuminate\Filesystem\FilesystemAdapter(
-                    $flysystem,
-                    $adapter,
-                    $config
-                );
+                return new Filesystem($adapter);
             });
 
         }
