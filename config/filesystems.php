@@ -64,10 +64,13 @@ return [
         ],
 
         'azure' => [
-            'driver' => 'azure',
-            'connection_string' => env('AZURE_STORAGE_CONNECTION_STRING'),
-            'container' => env('AZURE_CONTAINER'),
+            'driver'    => 'azure',
+            'endpoint'  => env('AZURE_STORAGE_ENDPOINT'),
+            'account_name' => env('AZURE_STORAGE_NAME'),
+            'account_key'  => env('AZURE_STORAGE_KEY'),
+            'container'  => env('AZURE_STORAGE_CONTAINER'),
         ],
+
     ],
 
     /*
