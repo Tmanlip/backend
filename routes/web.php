@@ -15,4 +15,7 @@ Route::get('/test-blob', function () {
     return "Uploaded test.txt to Azure.";
 });
 
+Route::get('/upload', [FileUploadController::class, 'uploadForm']);
 Route::post('/upload', [FileUploadController::class, 'upload']);
+
+Route::get('/files', [FileUploadController::class, 'listFiles']);
