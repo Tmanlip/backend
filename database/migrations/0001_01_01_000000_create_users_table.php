@@ -10,43 +10,28 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->string('name')->nullable();
+            $table->string('name');
             $table->string('email')->unique();
+            $table->string('username')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-
-            // ✅ Laravel ENUM (VARCHAR in PostgreSQL)
-            $table->enum('role', ['admin', 'client', 'lawyer'])
-                  ->default('client');
-
-            $table->enum('status', ['Active', 'Inactive', 'Archived'])
-                  ->default('Active')
-                  ->after('role');
-
+            $table->integer('age');
+            $table->string('ICNumber');
+            $table->string('phoneNumber');
+            $table->string('HomeAddress');
+            $table->string('firmID')->unique();
+            $table->enum('maritalStatus', ['Single', 'Married', 'Divorced'])->default('Single');
+            $table->enum('gender', ['Male','Female'])->default('Male');
+            $table->enum('role', ['admin', 'client', 'lawyer'])->default('client');
+            $table->enum('status', ['Active', 'Inactive', 'Archived'])->default('Active');
             $table->rememberToken();
             $table->timestamps();
-        });
-
-        Schema::create('password_reset_tokens', function (Blueprint $table) {
-            $table->string('email')->primary();
-            $table->string('token');
-            $table->timestamp('created_at')->nullable();
-        });
-
-        Schema::create('sessions', function (Blueprint $table) {
-            $table->string('id')->primary();
-            $table->foreignId('user_id')->nullable()->index();
-            $table->string('ip_address', 45)->nullable();
-            $table->text('user_agent')->nullable();
-            $table->longText('payload');
-            $table->integer('last_activity')->index();
+            $table->softDeletes();
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('sessions');
-        Schema::dropIfExists('password_reset_tokens');
         Schema::dropIfExists('users');
     }
 };
