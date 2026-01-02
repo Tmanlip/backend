@@ -15,7 +15,28 @@ Route::get('/test-blob', function () {
     return "Uploaded test.txt to Azure.";
 });
 
-Route::get('/upload', [FileUploadController::class, 'uploadForm']);
-Route::post('/upload', [FileUploadController::class, 'upload']);
+Route::get('/test-azure', function () {
+    $filename = 'test-file-' . now()->timestamp . '.txt';
+    $content = 'Testing Azure Storage at ' . now();
 
-Route::get('/files', [FileUploadController::class, 'listFiles']);
+    try {
+        // 1. Attempt to write
+        Storage::disk('azure')->put($filename, $content);
+
+        // 2. Attempt to read back
+        $output = Storage::disk('azure')->get($filename);
+
+        return response()->json([
+            'status' => 'Success!',
+            'environment' => app()->environment(),
+            'file_created' => $filename,
+            'content_verified' => $output
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'Failed',
+            'error' => $e->getMessage(),
+            'tip' => 'Check if your Managed Identity has "Storage Blob Data Contributor" role.'
+        ], 500);
+    }
+});

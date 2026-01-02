@@ -64,8 +64,8 @@ return [
         ],
 
         'azure' => [
-            'driver'    => 'azure',
-            'endpoint'  => env('AZURE_STORAGE_ENDPOINT'),
+            'driver'    => 'azure_managed',
+            //'endpoint'  => env('AZURE_STORAGE_ENDPOINT'),
             'account_name' => env('AZURE_STORAGE_NAME'),
             'account_key'  => env('AZURE_STORAGE_KEY'),
             'container'  => env('AZURE_STORAGE_CONTAINER'),

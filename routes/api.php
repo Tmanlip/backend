@@ -17,6 +17,9 @@ Route::post('/login', [AuthController::class, 'login']);
 
 Route::get('/users', [UserController::class, 'index']);
 Route::post('/registerusers', [UserController::class, 'store']);
+Route::get('/clients/{firmID}', [UserController::class, 'getClientFullData']);
+Route::get('/lawyers/{firmID}', [UserController::class, 'getLawyerFullData']);
+Route::get('/admins/{firmID}', [UserController::class, 'getAdminFullData']);
 
 Route::get('/documents', [DocumentController::class, 'index']);
 Route::post('/documents/upload', [DocumentController::class, 'upload']);
