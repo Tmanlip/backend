@@ -15,7 +15,7 @@ Route::get('/test-blob', function () {
     return "Uploaded test.txt to Azure.";
 });
 
-/*Route::get('/test-azure', function () {
+Route::get('/test-azure', function () {
     $filename = 'test-file-' . now()->timestamp . '.txt';
     $content = 'Testing Azure Storage at ' . now();
 
@@ -39,7 +39,7 @@ Route::get('/test-blob', function () {
             'tip' => 'Check if your Managed Identity has "Storage Blob Data Contributor" role.'
         ], 500);
     }
-}); */
+});
 
 Route::get('/test-azure-final', function () {
     try {
