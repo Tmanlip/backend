@@ -15,7 +15,7 @@ Route::get('/test-blob', function () {
     return "Uploaded test.txt to Azure.";
 });
 
-Route::get('/test-azure', function () {
+/*Route::get('/test-azure', function () {
     $filename = 'test-file-' . now()->timestamp . '.txt';
     $content = 'Testing Azure Storage at ' . now();
 
@@ -62,5 +62,78 @@ Route::get('/test-azure-final', function () {
         ]);
     } catch (\Exception $e) {
         return response()->json(['error' => $e->getMessage()]);
+    }
+});*/
+
+Route::get('/test-azure-mi', function () {
+    $disk = Storage::disk('azure');
+    $filename = 'mi-test/mi-check-' . now()->timestamp . '.txt';
+    $content = 'Managed Identity test at ' . now();
+
+    try {
+        // 1. Upload file
+        $disk->put($filename, $content);
+
+        // 2. Read file back (BEST verification method for Azure)
+        $readBack = $disk->get($filename);
+
+        return response()->json([
+            'status' => 'SUCCESS',
+            'test' => 'Managed Identity Logic',
+            'environment' => app()->environment(),
+            'storage_account' => config('filesystems.disks.azure.account_name'),
+            'container' => config('filesystems.disks.azure.container'),
+            'file_path' => $filename,
+            'content_verified' => $readBack,
+            'result' => 'Managed Identity + RBAC is working correctly'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'FAILED',
+            'test' => 'Managed Identity Logic',
+            'error' => $e->getMessage(),
+            'tip' => 'Ensure VM/App Service has Storage Blob Data Contributor role'
+        ], 500);
+    }
+});
+
+Route::get('/test-azure-path', function () {
+    $disk = Storage::disk('azure');
+
+    // Simulated document structure
+    $folder = 'documents/contracts';
+    $filename = $folder . '/doc-' . time() . '.txt';
+    $content = 'Document path test at ' . now();
+
+    try {
+        // 1. Upload document to virtual folder
+        $disk->put($filename, $content);
+
+        // 2. Verify by reading back
+        try {
+            $readBack = $disk->get($filename);
+            $verified = true;
+        } catch (\Exception $e) {
+            $verified = false;
+            $readBack = null;
+        }
+
+        return response()->json([
+            'status' => 'PROCESS COMPLETE',
+            'test' => 'Document Path Resolution',
+            'container' => config('filesystems.disks.azure.container'),
+            'document_path' => $filename,
+            'file_verified' => $verified ? 'YES' : 'NO',
+            'content' => $readBack,
+            'tip' => $verified
+                ? 'Path is correct. Check Azure Portal → Container → documents/contracts/'
+                : 'Upload may have succeeded, but read verification failed'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'FAILED',
+            'test' => 'Document Path Resolution',
+            'error' => $e->getMessage()
+        ], 500);
     }
 });
