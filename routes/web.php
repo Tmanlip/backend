@@ -67,51 +67,57 @@ Route::get('/test-azure-final', function () {
 
 Route::get('/test-azure-mi', function () {
     $disk = Storage::disk('azure');
+
     $filename = 'mi-test/mi-check-' . now()->timestamp . '.txt';
     $content = 'Managed Identity test at ' . now();
 
     try {
-        // 1. Upload file
+        // Upload
         $disk->put($filename, $content);
 
-        // 2. Read file back (BEST verification method for Azure)
-        $readBack = $disk->get($filename);
+        // Read back (authoritative Azure check)
+        $readBack = (string) $disk->get($filename);
 
         return response()->json([
             'status' => 'SUCCESS',
             'test' => 'Managed Identity Logic',
             'environment' => app()->environment(),
-            'storage_account' => config('filesystems.disks.azure.account_name'),
-            'container' => config('filesystems.disks.azure.container'),
+
+            // Read directly from env to avoid config cache nulls
+            'storage_account' => env('AZURE_STORAGE_NAME'),
+            'container' => env('AZURE_STORAGE_CONTAINER'),
+            'disk_url' => env('AZURE_STORAGE_NAME')
+                ? 'https://' . env('AZURE_STORAGE_NAME') . '.blob.core.windows.net/' . env('AZURE_STORAGE_CONTAINER')
+                : null,
+
             'file_path' => $filename,
             'content_verified' => $readBack,
-            'result' => 'Managed Identity + RBAC is working correctly'
+            'result' => 'Upload & read succeeded using configured auth method'
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'status' => 'FAILED',
             'test' => 'Managed Identity Logic',
             'error' => $e->getMessage(),
-            'tip' => 'Ensure VM/App Service has Storage Blob Data Contributor role'
+            'tip' => 'Check Managed Identity or Storage Account Key permissions'
         ], 500);
     }
-});
+}); 
 
 Route::get('/test-azure-path', function () {
     $disk = Storage::disk('azure');
 
-    // Simulated document structure
     $folder = 'documents/contracts';
     $filename = $folder . '/doc-' . time() . '.txt';
     $content = 'Document path test at ' . now();
 
     try {
-        // 1. Upload document to virtual folder
+        // Upload to virtual folder
         $disk->put($filename, $content);
 
-        // 2. Verify by reading back
+        // Verify by read
         try {
-            $readBack = $disk->get($filename);
+            $readBack = (string) $disk->get($filename);
             $verified = true;
         } catch (\Exception $e) {
             $verified = false;
@@ -121,13 +127,20 @@ Route::get('/test-azure-path', function () {
         return response()->json([
             'status' => 'PROCESS COMPLETE',
             'test' => 'Document Path Resolution',
-            'container' => config('filesystems.disks.azure.container'),
+
+            // Pulled from env to match your disk config
+            'container' => env('AZURE_STORAGE_CONTAINER'),
             'document_path' => $filename,
+            'full_blob_url' => env('AZURE_STORAGE_NAME')
+                ? 'https://' . env('AZURE_STORAGE_NAME') . '.blob.core.windows.net/'
+                    . env('AZURE_STORAGE_CONTAINER') . '/' . $filename
+                : null,
+
             'file_verified' => $verified ? 'YES' : 'NO',
             'content' => $readBack,
             'tip' => $verified
                 ? 'Path is correct. Check Azure Portal → Container → documents/contracts/'
-                : 'Upload may have succeeded, but read verification failed'
+                : 'Upload worked but verification failed'
         ]);
     } catch (\Exception $e) {
         return response()->json([
