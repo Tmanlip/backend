@@ -150,3 +150,16 @@ Route::get('/test-azure-path', function () {
         ], 500);
     }
 });
+
+Route::get('/debug-azure-target', function () {
+    return response()->json([
+        'env_account' => env('AZURE_STORAGE_NAME'),
+        'env_container' => env('AZURE_STORAGE_CONTAINER'),
+        'env_key_set' => env('AZURE_STORAGE_KEY') ? 'YES' : 'NO',
+
+        'config_account' => config('filesystems.disks.azure.account_name'),
+        'config_container' => config('filesystems.disks.azure.container'),
+
+        'app_env' => app()->environment(),
+    ]);
+});
