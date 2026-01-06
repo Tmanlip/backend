@@ -163,3 +163,26 @@ Route::get('/debug-azure-target', function () {
         'app_env' => app()->environment(),
     ]);
 });
+
+Route::get('/azure-hard-proof', function () {
+    $disk = Storage::disk('azure');
+
+    $path = 'debug/proof.txt';
+
+    try {
+        $disk->put($path, 'Azure write test at ' . now());
+
+        return response()->json([
+            'status' => 'OK',
+            'driver' => config('filesystems.disks.azure.driver'),
+            'container' => config('filesystems.disks.azure.container'),
+            'account' => config('filesystems.disks.azure.name'),
+            'exists' => $disk->exists($path),
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'FAIL',
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+});
