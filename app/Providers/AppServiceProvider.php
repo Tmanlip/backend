@@ -31,29 +31,22 @@
                 ->group(base_path('routes/api.php'));
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
+    Storage::extend('azure', function ($app, $config) {
 
-            Storage::extend('azure', function ($app, $config) {
+        $connectionString = "DefaultEndpointsProtocol=https;AccountName={$config['name']};AccountKey={$config['key']};EndpointSuffix=core.windows.net";
 
-                $client = BlobRestProxy::createBlobService(
-                    $config['connection_string']
-                );
+        $client = BlobRestProxy::createBlobService($connectionString);
 
-                $adapter = new AzureBlobStorageAdapter(
-                    $client,
-                    $config['container']
-                );
+        $adapter = new AzureBlobStorageAdapter(
+            $client,
+            $config['container']
+        );
 
-                $filesystem = new Filesystem($adapter);
+        return new Filesystem($adapter);
+    });
 
-                return new FilesystemAdapter(
-                    $filesystem,
-                    $adapter,
-                    $config
-                );
-            });
-
-        }
-        
     }
+        
+}
 
 
