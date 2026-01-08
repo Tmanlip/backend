@@ -2,16 +2,15 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Storage;
 use League\Flysystem\Filesystem;
-use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
 use MicrosoftAzure\Storage\Blob\BlobRestProxy;
+use League\Flysystem\AzureBlobStorage\AzureBlobStorageAdapter;
 
 class AzureBlobServiceProvider extends ServiceProvider
 {
-    public function boot(): void
+    public function register(): void
     {
         Storage::extend('azure', function ($app, $config) {
 
@@ -25,17 +24,16 @@ class AzureBlobServiceProvider extends ServiceProvider
 
             $adapter = new AzureBlobStorageAdapter(
                 $client,
-                $config['container']
+                $config['container'],
+                $config['prefix'] ?? ''
             );
 
-            $filesystem = new Filesystem($adapter);
-
-            // ✅ THIS IS THE CRITICAL FIX
-            return new FilesystemAdapter(
-                $filesystem,
-                $adapter,
-                $config
-            );
+            return new Filesystem($adapter);
         });
+    }
+
+    public function boot(): void
+    {
+        //
     }
 }
