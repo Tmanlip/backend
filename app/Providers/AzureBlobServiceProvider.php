@@ -12,7 +12,9 @@ class AzureBlobServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
-        $manager = $this->app->make(FilesystemManager::class);
+        logger()->critical('AZURE PROVIDER BOOTED');
+
+        $manager = $this->app->make(\Illuminate\Filesystem\FilesystemManager::class);
 
         $manager->extend('azure', function ($app, $config) {
 
