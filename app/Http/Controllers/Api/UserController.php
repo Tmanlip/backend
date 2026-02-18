@@ -6,20 +6,46 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use App\Models\LawCase;
+use App\Mail\UserRegisteredMail;
+use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
+use App\Services\UserKeyService;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Crypt;
 
 class UserController extends Controller
 {
     // GET /api/users
-    public function index()
-    {
-        return response()->json(
-            User::select('id', 'name', 'email', 'role', 'status', 'firmID')->get()
-        );
+    public function index(){
+        $users = User::select('id', 'name', 'email', 'role', 'status', 'firmID', 'key')
+            ->get()
+            ->map(function ($user) {
+                // Only for clients, check if they have at least one case
+                $caseId = null;
+                if ($user->role === 'client') {
+                    $case = LawCase::where('clientID', $user->id)->first();
+                    if ($case) {
+                        $caseId = $case->caseId; // assign caseId if exists
+                    }
+                }
+
+                return [
+                    'id'       => $user->id,
+                    'name'     => $user->name,
+                    'email'    => $user->email,
+                    'role'     => $user->role,
+                    'status'   => $user->status,
+                    'firmID'   => $user->firmID,
+                    'caseId'   => $caseId,
+                    'key'      => $user->key
+                ];
+            });
+
+        return response()->json($users);
     }
 
     // POST /api/registerusers
-    public function store(Request $request)
-    {
+    public function store(Request $request){
         $validated = $request->validate([
             'name'           => 'required|string|max:255',
             'email'          => 'required|email|unique:users,email',
@@ -34,7 +60,36 @@ class UserController extends Controller
             'maritalStatus'  => 'required|in:Single,Married,Divorce',
         ]);
 
+        // ✅ Generate secure random AES key for document encryption
+        $validated['key'] = UserKeyService::generateKey();
+
+        // ✅ Generate RSA key pair
+        $resource = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+
+        // Extract private key
+        openssl_pkey_export($resource, $privateKey);
+
+        // Extract public key
+        $details = openssl_pkey_get_details($resource);
+        $publicKey = $details['key'];
+
+        // Encrypt private key before storing
+        $encryptedPrivateKey = Crypt::encryptString($privateKey);
+
+        $validated['rsa_private_key'] = $encryptedPrivateKey;
+        $validated['rsa_public_key'] = $publicKey;
+
+        // ✅ Hash the password
+        $validated['password'] = bcrypt($validated['password']);
+        
+        // ✅ Create the user
         $user = User::create($validated);
+
+        // ✅ Send email to the user (with original password)
+        Mail::to($user->email)->send(new UserRegisteredMail($user, $request->password));
 
         return response()->json([
             'message' => 'User created successfully',
@@ -109,14 +164,22 @@ class UserController extends Controller
             ->with('client:id,name')
             ->get()
             ->map(function ($case) {
+
+                $metadata = \App\Models\Metadata::cases()
+                    ->where('case_id', (string) $case->caseId)
+                    ->first();
+
                 return [
                     'caseId'     => $case->caseId,
                     'title'      => $case->title,
                     'description'=> $case->description,
                     'status'     => $case->status,
                     'clientName' => $case->client?->name,
+                    'clientId' => $case->client?->id,
+                    'lawyerId' => $case->lawyer?->id,
                     'lawyerName'  => $case->lawyer?->name,
                     'created_at' => $case->created_at,
+                    'blob_folder_path'=> $metadata?->blob_folder_path ?? null
                 ];
             });
 
@@ -172,6 +235,69 @@ class UserController extends Controller
                 'created_at'    => $admin->created_at,
             ],
             'cases' => [], // empty array
+        ]);
+    }
+
+    // PUT /api/users/{firmID}
+    public function update(Request $request, string $firmID){
+        $user = User::where('firmID', $firmID)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name'           => 'sometimes|string|max:255',
+            'email'          => 'sometimes|email|unique:users,email,' . $user->id,
+            'username'       => 'sometimes|string|max:50|unique:users,username,' . $user->id,
+            'age'            => 'sometimes|integer|min:1',
+            'ICNumber'       => 'sometimes|string',
+            'phoneNumber'    => 'sometimes|string',
+            'HomeAddress'    => 'sometimes|string',
+            'gender'         => 'sometimes|in:Male,Female',
+            'maritalStatus'  => 'sometimes|in:Single,Married,Divorced',
+            'status'         => 'sometimes|in:Active,Inactive,Archived',
+            'password'       => 'sometimes|min:8',
+        ]);
+
+        // Update allowed fields only
+        $user->update($validated);
+
+        // New: return full updated user
+        return response()->json([
+            'message' => 'User updated successfully',
+            'user' => $user  // full object with all fields
+        ]);
+    }
+
+    // GET /api/lawyers
+    public function getAllLawyers(){
+        $lawyers = User::select('id', 'name', 'email', 'firmID', 'status')
+            ->where('role', 'lawyer')
+            ->get();
+
+        return response()->json($lawyers);
+    }
+
+    // GET /api/clients
+    public function getAllClients(){
+        $clients = User::select('id', 'name', 'email', 'firmID', 'status')
+            ->where('role', 'client')
+            ->get();
+
+        return response()->json($clients);
+    }
+
+    public function getPublicKey($id){
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Return the stored public key
+        return response()->json([
+            'publicKey' => $user->rsa_public_key
         ]);
     }
 }

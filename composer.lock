@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2fb3f8d1dd1a0eeb18b1c3455a94c171",
+    "content-hash": "034a4b54eea2cfb5cf1fe0c757e71012",
     "packages": [
         {
             "name": "brick/math",
@@ -1053,113 +1053,6 @@
             "time": "2025-08-22T14:27:06+00:00"
         },
         {
-            "name": "jenssegers/mongodb",
-            "version": "5.5.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/mongodb/laravel-mongodb.git",
-                "reference": "c483b99a69ea9916d17719b86e7e5ea2f8b44c8a"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/mongodb/laravel-mongodb/zipball/c483b99a69ea9916d17719b86e7e5ea2f8b44c8a",
-                "reference": "c483b99a69ea9916d17719b86e7e5ea2f8b44c8a",
-                "shasum": ""
-            },
-            "require": {
-                "composer-runtime-api": "^2.0.0",
-                "ext-mongodb": "^1.21|^2",
-                "illuminate/cache": "^10.36|^11|^12",
-                "illuminate/container": "^10.0|^11|^12",
-                "illuminate/database": "^10.30|^11|^12",
-                "illuminate/events": "^10.0|^11|^12",
-                "illuminate/support": "^10.0|^11|^12",
-                "mongodb/mongodb": "^1.21|^2",
-                "php": "^8.1",
-                "symfony/http-foundation": "^6.4|^7"
-            },
-            "conflict": {
-                "illuminate/bus": "< 10.37.2"
-            },
-            "require-dev": {
-                "doctrine/coding-standard": "12.0.x-dev",
-                "laravel/scout": "^10.3",
-                "league/flysystem-gridfs": "^3.28",
-                "league/flysystem-read-only": "^3.0",
-                "mockery/mockery": "^1.4.4",
-                "orchestra/testbench": "^8.0|^9.0|^10.0",
-                "phpstan/phpstan": "^1.10",
-                "phpunit/phpunit": "^10.3|^11.5.3",
-                "rector/rector": "^1.2",
-                "spatie/laravel-query-builder": "^5.6|^6"
-            },
-            "suggest": {
-                "league/flysystem-gridfs": "Filesystem storage in MongoDB with GridFS"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "MongoDB\\Laravel\\MongoDBServiceProvider",
-                        "MongoDB\\Laravel\\MongoDBBusServiceProvider"
-                    ]
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "MongoDB\\Laravel\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Andreas Braun",
-                    "email": "andreas.braun@mongodb.com",
-                    "role": "Leader"
-                },
-                {
-                    "name": "Pauline Vos",
-                    "email": "pauline.vos@mongodb.com",
-                    "role": "Maintainer"
-                },
-                {
-                    "name": "Jérôme Tamarelle",
-                    "email": "jerome.tamarelle@mongodb.com",
-                    "role": "Maintainer"
-                },
-                {
-                    "name": "Jeremy Mikola",
-                    "email": "jmikola@gmail.com",
-                    "role": "Maintainer"
-                },
-                {
-                    "name": "Jens Segers",
-                    "homepage": "https://jenssegers.com",
-                    "role": "Creator"
-                }
-            ],
-            "description": "A MongoDB based Eloquent model and Query builder for Laravel",
-            "homepage": "https://github.com/mongodb/laravel-mongodb",
-            "keywords": [
-                "database",
-                "eloquent",
-                "laravel",
-                "model",
-                "mongo",
-                "mongodb"
-            ],
-            "support": {
-                "issues": "https://www.mongodb.com/support",
-                "security": "https://www.mongodb.com/security",
-                "source": "https://github.com/mongodb/laravel-mongodb/tree/5.5.0"
-            },
-            "abandoned": "mongodb/laravel-mongodb",
-            "time": "2025-08-12T05:06:10+00:00"
-        },
-        {
             "name": "laravel/framework",
             "version": "v12.44.0",
             "source": {
@@ -1442,16 +1335,16 @@
         },
         {
             "name": "laravel/sanctum",
-            "version": "v4.2.1",
+            "version": "v4.2.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laravel/sanctum.git",
-                "reference": "f5fb373be39a246c74a060f2cf2ae2c2145b3664"
+                "reference": "dadd2277ff0f05cdb435c8b6a0bcedcf3b5519a9"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laravel/sanctum/zipball/f5fb373be39a246c74a060f2cf2ae2c2145b3664",
-                "reference": "f5fb373be39a246c74a060f2cf2ae2c2145b3664",
+                "url": "https://api.github.com/repos/laravel/sanctum/zipball/dadd2277ff0f05cdb435c8b6a0bcedcf3b5519a9",
+                "reference": "dadd2277ff0f05cdb435c8b6a0bcedcf3b5519a9",
                 "shasum": ""
             },
             "require": {
@@ -1501,7 +1394,7 @@
                 "issues": "https://github.com/laravel/sanctum/issues",
                 "source": "https://github.com/laravel/sanctum"
             },
-            "time": "2025-11-21T13:59:03+00:00"
+            "time": "2026-01-15T14:37:16+00:00"
         },
         {
             "name": "laravel/serializable-closure",
@@ -1903,47 +1796,6 @@
             "time": "2025-11-10T17:13:11+00:00"
         },
         {
-            "name": "league/flysystem-azure-blob-storage",
-            "version": "3.30.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/thephpleague/flysystem-azure-blob-storage.git",
-                "reference": "731d07713f3541f3f204817117f27d4c7f175c5a"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/thephpleague/flysystem-azure-blob-storage/zipball/731d07713f3541f3f204817117f27d4c7f175c5a",
-                "reference": "731d07713f3541f3f204817117f27d4c7f175c5a",
-                "shasum": ""
-            },
-            "require": {
-                "league/flysystem": "^3.10.0",
-                "microsoft/azure-storage-blob": "^1.1",
-                "php": "^8.0.2"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "League\\Flysystem\\AzureBlobStorage\\": ""
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Frank de Jonge",
-                    "email": "info@frankdejonge.nl"
-                }
-            ],
-            "support": {
-                "source": "https://github.com/thephpleague/flysystem-azure-blob-storage/tree/3.30.0"
-            },
-            "abandoned": "azure-oss/storage-blob-flysystem",
-            "time": "2025-02-09T18:52:59+00:00"
-        },
-        {
             "name": "league/flysystem-local",
             "version": "3.30.2",
             "source": {
@@ -2325,6 +2177,115 @@
                 "source": "https://github.com/Azure/azure-storage-common-php/tree/v1.5.2"
             },
             "time": "2021-10-09T03:03:47+00:00"
+        },
+        {
+            "name": "mongodb/laravel-mongodb",
+            "version": "5.5.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/mongodb/laravel-mongodb.git",
+                "reference": "c483b99a69ea9916d17719b86e7e5ea2f8b44c8a"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/mongodb/laravel-mongodb/zipball/c483b99a69ea9916d17719b86e7e5ea2f8b44c8a",
+                "reference": "c483b99a69ea9916d17719b86e7e5ea2f8b44c8a",
+                "shasum": ""
+            },
+            "require": {
+                "composer-runtime-api": "^2.0.0",
+                "ext-mongodb": "^1.21|^2",
+                "illuminate/cache": "^10.36|^11|^12",
+                "illuminate/container": "^10.0|^11|^12",
+                "illuminate/database": "^10.30|^11|^12",
+                "illuminate/events": "^10.0|^11|^12",
+                "illuminate/support": "^10.0|^11|^12",
+                "mongodb/mongodb": "^1.21|^2",
+                "php": "^8.1",
+                "symfony/http-foundation": "^6.4|^7"
+            },
+            "conflict": {
+                "illuminate/bus": "< 10.37.2"
+            },
+            "replace": {
+                "jenssegers/mongodb": "self.version"
+            },
+            "require-dev": {
+                "doctrine/coding-standard": "12.0.x-dev",
+                "laravel/scout": "^10.3",
+                "league/flysystem-gridfs": "^3.28",
+                "league/flysystem-read-only": "^3.0",
+                "mockery/mockery": "^1.4.4",
+                "orchestra/testbench": "^8.0|^9.0|^10.0",
+                "phpstan/phpstan": "^1.10",
+                "phpunit/phpunit": "^10.3|^11.5.3",
+                "rector/rector": "^1.2",
+                "spatie/laravel-query-builder": "^5.6|^6"
+            },
+            "suggest": {
+                "league/flysystem-gridfs": "Filesystem storage in MongoDB with GridFS"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "MongoDB\\Laravel\\MongoDBServiceProvider",
+                        "MongoDB\\Laravel\\MongoDBBusServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "MongoDB\\Laravel\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Andreas Braun",
+                    "email": "andreas.braun@mongodb.com",
+                    "role": "Leader"
+                },
+                {
+                    "name": "Pauline Vos",
+                    "email": "pauline.vos@mongodb.com",
+                    "role": "Maintainer"
+                },
+                {
+                    "name": "Jérôme Tamarelle",
+                    "email": "jerome.tamarelle@mongodb.com",
+                    "role": "Maintainer"
+                },
+                {
+                    "name": "Jeremy Mikola",
+                    "email": "jmikola@gmail.com",
+                    "role": "Maintainer"
+                },
+                {
+                    "name": "Jens Segers",
+                    "homepage": "https://jenssegers.com",
+                    "role": "Creator"
+                }
+            ],
+            "description": "A MongoDB based Eloquent model and Query builder for Laravel",
+            "homepage": "https://github.com/mongodb/laravel-mongodb",
+            "keywords": [
+                "database",
+                "eloquent",
+                "laravel",
+                "model",
+                "mongo",
+                "mongodb"
+            ],
+            "support": {
+                "issues": "https://www.mongodb.com/support",
+                "security": "https://www.mongodb.com/security",
+                "source": "https://github.com/mongodb/laravel-mongodb/tree/5.5.0"
+            },
+            "time": "2025-08-12T05:06:10+00:00"
         },
         {
             "name": "mongodb/mongodb",
