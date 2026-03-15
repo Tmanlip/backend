@@ -66,7 +66,7 @@
             static::creating(function ($user) {
                 if (!$user->firmID) {
                     $user->firmID = FirmIdGenerator::generate($user->role);
-                    $user->key = UserKeyService::generateKey($user->email, $user->ICNumber);
+                    $user->key = UserKeyService::generateKey();
                 }
             });
 

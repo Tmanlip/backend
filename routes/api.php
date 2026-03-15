@@ -45,7 +45,7 @@ Route::get('/lawyers/{firmID}', [UserController::class, 'getLawyerFullData']);
 Route::get('/admins/{firmID}', [UserController::class, 'getAdminFullData']);
 Route::put('/users/{firmID}', [UserController::class, 'update']);
 
-Route::get('/user/{id}/public-key', [UserController::class, 'getPublicKey']);
+Route::get('/user/{firmID}/public-key', [UserController::class, 'getPublicKey']);
 
 //Cases API /api
 Route::post('/registercases', [LawCaseController::class, 'store']);
@@ -57,4 +57,5 @@ Route::get('/read/{path}', [AzureController::class, 'preview'])->where('path', '
 Route::get('/download/{path}', [AzureController::class, 'download'])->where('path', '.*');;
 Route::delete('/delete/{path}', [AzureController::class, 'delete'])->where('path', '.*'); // Delete file
 Route::get('/files', [AzureController::class, 'list']);
+Route::delete('/files', [AzureController::class, 'deleteByQuery']);
 

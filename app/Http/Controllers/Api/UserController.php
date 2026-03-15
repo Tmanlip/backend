@@ -11,7 +11,6 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Carbon;
 use App\Services\UserKeyService;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Crypt;
 
 class UserController extends Controller
 {
@@ -64,23 +63,9 @@ class UserController extends Controller
         $validated['key'] = UserKeyService::generateKey();
 
         // ✅ Generate RSA key pair
-        $resource = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-
-        // Extract private key
-        openssl_pkey_export($resource, $privateKey);
-
-        // Extract public key
-        $details = openssl_pkey_get_details($resource);
-        $publicKey = $details['key'];
-
-        // Encrypt private key before storing
-        $encryptedPrivateKey = Crypt::encryptString($privateKey);
-
-        $validated['rsa_private_key'] = $encryptedPrivateKey;
-        $validated['rsa_public_key'] = $publicKey;
+        $rsaKeys = UserKeyService::generateRsaKeyPair();
+        $validated['rsa_private_key'] = $rsaKeys['encryptedPrivateKey'];
+        $validated['rsa_public_key'] = $rsaKeys['publicKey'];
 
         // ✅ Hash the password
         $validated['password'] = bcrypt($validated['password']);
@@ -123,6 +108,7 @@ class UserController extends Controller
                     'clientName' => $case->client?->name,
                     'lawyerName'  => $case->lawyer?->name,
                     'created_at'  => $case->created_at,
+                    'blob_folder_path' => "cases/{$case->caseId}/",
                 ];
             });
 
@@ -246,19 +232,63 @@ class UserController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        $normalizeText = static function ($value): ?string {
+            if ($value === null) {
+                return null;
+            }
+
+            if (is_string($value)) {
+                return $value;
+            }
+
+            if (is_scalar($value)) {
+                return (string) $value;
+            }
+
+            return json_encode($value);
+        };
+
+        // Accept both camelCase and snake_case payloads from different frontend screens,
+        // but only merge fields that are explicitly provided in the request.
+        $normalized = [];
+
+        if ($request->exists('phoneNumber') || $request->exists('phone_number')) {
+            $normalized['phoneNumber'] = $normalizeText($request->input('phoneNumber', $request->input('phone_number')));
+        }
+
+        if ($request->exists('HomeAddress') || $request->exists('home_address')) {
+            $normalized['HomeAddress'] = $normalizeText($request->input('HomeAddress', $request->input('home_address')));
+        }
+
+        if ($request->exists('ICNumber') || $request->exists('ic_number')) {
+            $normalized['ICNumber'] = $normalizeText($request->input('ICNumber', $request->input('ic_number')));
+        }
+
+        if ($request->exists('maritalStatus') || $request->exists('marital_status')) {
+            $normalized['maritalStatus'] = $normalizeText($request->input('maritalStatus', $request->input('marital_status')));
+        }
+
+        if (!empty($normalized)) {
+            $request->merge($normalized);
+        }
+
         $validated = $request->validate([
             'name'           => 'sometimes|string|max:255',
             'email'          => 'sometimes|email|unique:users,email,' . $user->id,
             'username'       => 'sometimes|string|max:50|unique:users,username,' . $user->id,
-            'age'            => 'sometimes|integer|min:1',
-            'ICNumber'       => 'sometimes|string',
-            'phoneNumber'    => 'sometimes|string',
-            'HomeAddress'    => 'sometimes|string',
+            'age'            => 'sometimes|nullable|integer|min:1',
+            'ICNumber'       => 'sometimes|nullable|string',
+            'phoneNumber'    => 'sometimes|nullable|string',
+            'HomeAddress'    => 'sometimes|nullable|string',
             'gender'         => 'sometimes|in:Male,Female',
-            'maritalStatus'  => 'sometimes|in:Single,Married,Divorced',
+            'maritalStatus'  => 'sometimes|nullable|in:Single,Married,Divorced',
             'status'         => 'sometimes|in:Active,Inactive,Archived',
-            'password'       => 'sometimes|min:8',
+            'password'       => 'sometimes|string|min:8',
         ]);
+
+        if (array_key_exists('password', $validated)) {
+            $validated['password'] = bcrypt($validated['password']);
+        }
 
         // Update allowed fields only
         $user->update($validated);
@@ -288,8 +318,8 @@ class UserController extends Controller
         return response()->json($clients);
     }
 
-    public function getPublicKey($id){
-        $user = User::find($id);
+    public function getPublicKey(string $firmID){
+        $user = User::where('firmID', $firmID)->first();
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
@@ -297,7 +327,7 @@ class UserController extends Controller
 
         // Return the stored public key
         return response()->json([
-            'publicKey' => $user->rsa_public_key
+            'publicKey' => UserKeyService::extractPemBody($user->rsa_public_key)
         ]);
     }
 }

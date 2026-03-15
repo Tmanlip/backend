@@ -116,6 +116,8 @@ class AuthController extends Controller
             'email' => 'required|email',
         ]);
 
+        $resetTable = config('auth.passwords.users.table', 'password_resets');
+
         // Check if user exists
         $user = DB::table('users')->where('email', $request->email)->first();
         if (!$user) {
@@ -127,8 +129,8 @@ class AuthController extends Controller
         // Generate token
         $token = Str::random(64);
 
-        // Insert token into password_resets table
-        DB::table('password_resets')->updateOrInsert(
+        // Store the reset token in the configured password reset table.
+        DB::table($resetTable)->updateOrInsert(
             ['email' => $request->email],
             [
                 'email' => $request->email,
@@ -155,8 +157,10 @@ class AuthController extends Controller
             'password' => 'required|min:8|confirmed',
         ]);
 
+        $resetTable = config('auth.passwords.users.table', 'password_resets');
+
         // 1️⃣ Check token exists
-        $reset = DB::table('password_resets')
+        $reset = DB::table($resetTable)
             ->where('email', $request->email)
             ->where('token', $request->token)
             ->first();
@@ -182,7 +186,7 @@ class AuthController extends Controller
             ]);
 
         // 4️⃣ Delete used token
-        DB::table('password_resets')
+        DB::table($resetTable)
             ->where('email', $request->email)
             ->delete();
 

@@ -7,7 +7,6 @@ use App\Models\User;
 use App\Models\LawCase;
 use App\Models\Metadata;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Crypt;
 use App\Http\Controllers\AzureController;
 use App\Services\UserKeyService;
 
@@ -114,20 +113,9 @@ class UserSeeder extends Seeder
             // ----------------------------
             // Generate RSA key pair
             // ----------------------------
-            $resource = openssl_pkey_new([
-                'private_key_bits' => 2048,
-                'private_key_type' => OPENSSL_KEYTYPE_RSA,
-            ]);
-
-            openssl_pkey_export($resource, $privateKey);
-            $details = openssl_pkey_get_details($resource);
-            $publicKey = $details['key'];
-
-            // Encrypt private key before storing
-            $encryptedPrivateKey = Crypt::encryptString($privateKey);
-
-            $data['rsa_private_key'] = $encryptedPrivateKey;
-            $data['rsa_public_key'] = $publicKey;
+            $rsaKeys = UserKeyService::generateRsaKeyPair();
+            $data['rsa_private_key'] = $rsaKeys['encryptedPrivateKey'];
+            $data['rsa_public_key'] = $rsaKeys['publicKey'];
 
             // Hash password
             $data['password'] = Hash::make($data['password']);
