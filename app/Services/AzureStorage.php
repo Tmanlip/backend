@@ -11,11 +11,15 @@ class AzureStorage
 {
     protected static function client()
     {
-        $connectionString = sprintf(
-            'DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=core.windows.net',
-            env('AZURE_STORAGE_NAME'),
-            env('AZURE_STORAGE_KEY')
-        );
+        $connectionString = env('AZURE_STORAGE_CONNECTION_STRING');
+
+        if (empty($connectionString)) {
+            $connectionString = sprintf(
+                'DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=core.windows.net',
+                env('AZURE_STORAGE_NAME'),
+                env('AZURE_STORAGE_KEY')
+            );
+        }
 
         return BlobRestProxy::createBlobService($connectionString);
     }
@@ -48,5 +52,19 @@ class AzureStorage
         $client = self::client();
         $options = new DeleteBlobOptions();
         $client->deleteBlob(self::container(), $blobName, $options);
+    }
+
+    public static function url(string $blobName): string
+    {
+        $accountName = env('AZURE_STORAGE_NAME');
+        $container = self::container();
+        $normalizedBlob = ltrim($blobName, '/');
+
+        return sprintf(
+            'https://%s.blob.core.windows.net/%s/%s',
+            $accountName,
+            $container,
+            str_replace('%2F', '/', rawurlencode($normalizedBlob))
+        );
     }
 }

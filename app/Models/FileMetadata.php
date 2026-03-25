@@ -10,9 +10,22 @@ class FileMetadata extends Model
     protected $collection = 'file_metadata';
 
     protected $fillable = [
+        'type',
         'case_id',
+        'category',
+        'uploader_user_id',
         'file_name',
+        'mime_type',
+        'size_bytes',
         'blob_path',
+        'content_hash_sha256',
+        'cipher',
+        'nonce',
+        'tag',
+        'server_encrypted_dek',
+        'dek_version',
+        'status',
+        'recipients',
         'encrypted_key',
         'iv',
     ];
@@ -20,6 +33,11 @@ class FileMetadata extends Model
     public $timestamps = true;
 
     protected $casts = [
+        'case_id' => 'integer',
+        'uploader_user_id' => 'integer',
+        'size_bytes' => 'integer',
+        'dek_version' => 'integer',
+        'recipients' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -35,11 +53,13 @@ class FileMetadata extends Model
     ): self {
 
         return self::create([
+            'type'          => 'legacy_file',
             'case_id'       => $caseId,
             'file_name'     => $fileName,
             'blob_path'     => $blobPath,
             'encrypted_key' => $encryptedKey,
             'iv'            => $iv,
+            'status'        => 'active',
         ]);
     }
 }

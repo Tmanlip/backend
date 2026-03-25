@@ -3,8 +3,9 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -21,13 +22,26 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(120)->by($request->user()?->id ?: $request->ip());
+        });
 
-        // Load the routes here directly
-        Route::middleware('api')
-            ->prefix('api')
-            ->group(base_path('routes/api.php'));
+        RateLimiter::for('auth-login', function (Request $request) {
+            $email = (string) $request->input('email', 'guest');
 
-        Route::middleware('web')
-            ->group(base_path('routes/web.php'));
+            return Limit::perMinute(5)->by($email.'|'.$request->ip());
+        });
+
+        RateLimiter::for('auth-reset', function (Request $request) {
+            $email = (string) $request->input('email', 'guest');
+
+            return Limit::perMinute(3)->by($email.'|'.$request->ip());
+        });
+
+        RateLimiter::for('auth-otp', function (Request $request) {
+            $email = (string) $request->input('email', 'guest');
+
+            return Limit::perMinute(5)->by($email.'|'.$request->ip());
+        });
     }
 }

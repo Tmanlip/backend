@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\Metadata;
+use App\Models\FileMetadata;
 use Illuminate\Http\JsonResponse;
 
 class LawCaseController extends Controller
@@ -20,6 +21,7 @@ class LawCaseController extends Controller
         return [
             'role' => strtolower((string) ($authUser?->role ?? $request->header('X-User-Role', ''))),
             'firmID' => (string) ($authUser?->firmID ?? $request->header('X-User-FirmID', '')),
+            'userId' => $authUser?->id ? (int) $authUser->id : null,
         ];
     }
 
@@ -39,11 +41,13 @@ class LawCaseController extends Controller
     }
 
     // GET /api/cases
-    public function index()
+    public function index(Request $request)
     {
+        $actor = $this->resolveActor($request);
+
         $cases = LawCase::with(['lawyer:id,name', 'client:id,name'])
             ->get()
-            ->map(function ($case) {
+            ->map(function ($case) use ($actor) {
 
                 $blobFolderPath = null;
                 try {
@@ -55,6 +59,12 @@ class LawCaseController extends Controller
                     Log::warning('MongoDB unavailable in cases index: ' . $e->getMessage());
                 }
 
+                $encryptedDocuments = $this->getCaseEncryptedDocuments(
+                    (int) $case->caseId,
+                    $actor['userId'],
+                    $actor['role']
+                );
+
                 return [
                     'id'               => $case->caseId,
                     'caseName'         => $case->title,
@@ -64,6 +74,7 @@ class LawCaseController extends Controller
                     'clientFirmID'     => $case->clientFirmID,
                     'status'           => $case->status,
                     'blob_folder_path' => $blobFolderPath,
+                    'encrypted_documents' => $encryptedDocuments,
                 ];
             });
 
@@ -129,10 +140,14 @@ class LawCaseController extends Controller
 
             DB::commit();
 
+            $case->load(['lawyer:id,name', 'client:id,name']);
+            $actor = $this->resolveActor($request);
+
             return response()->json([
                 'message' => 'Case created successfully with Azure folders',
                 'caseId'  => $case->caseId,
-                'azureFolder' => $caseFolder
+                'azureFolder' => $caseFolder,
+                'case' => $this->formatCasePayload($case, $actor)
             ], 201);
 
         } catch (\Throwable $e) {
@@ -249,17 +264,89 @@ class LawCaseController extends Controller
         $case->fill(collect($validated)->except(['lawyerID', 'clientID'])->toArray());
         $case->save();
 
+        $case->load(['lawyer:id,name', 'client:id,name']);
+        $actor = $this->resolveActor($request);
+
         return response()->json([
             'message' => 'Case updated successfully',
-            'case' => [
-                'caseId'      => $case->caseId,
-                'title'       => $case->title,
-                'status'      => $case->status,
-                'lawyerFirmID'=> $case->lawyerFirmID,
-                'clientFirmID'=> $case->clientFirmID,
-                'updated_at'  => $case->updated_at,
-            ]
+            'case' => $this->formatCasePayload($case, $actor)
         ]);
+    }
+
+    private function formatCasePayload(LawCase $case, array $actor): array
+    {
+        $blobFolderPath = null;
+        try {
+            $metadata = Metadata::cases()
+                ->where('case_id', (string) $case->caseId)
+                ->first();
+            $blobFolderPath = $metadata?->blob_folder_path ?? null;
+        } catch (\Throwable $e) {
+            Log::warning('MongoDB unavailable while formatting case payload: ' . $e->getMessage());
+        }
+
+        return [
+            'id' => $case->caseId,
+            'caseId' => $case->caseId,
+            'caseName' => $case->title,
+            'title' => $case->title,
+            'description' => $case->description,
+            'clientName' => $case->client?->name,
+            'lawyerName' => $case->lawyer?->name,
+            'lawyerFirmID' => $case->lawyerFirmID,
+            'clientFirmID' => $case->clientFirmID,
+            'status' => $case->status,
+            'blob_folder_path' => $blobFolderPath,
+            'encrypted_documents' => $this->getCaseEncryptedDocuments(
+                (int) $case->caseId,
+                $actor['userId'],
+                $actor['role']
+            ),
+            'created_at' => $case->created_at,
+            'updated_at' => $case->updated_at,
+        ];
+    }
+
+    private function getCaseEncryptedDocuments(int $caseId, ?int $actorUserId, string $actorRole)
+    {
+        $documents = FileMetadata::where('type', 'encrypted_document')
+            ->where('case_id', $caseId)
+            ->get();
+
+        if ($actorRole === 'admin') {
+            $visible = $documents;
+        } elseif ($actorUserId !== null) {
+            $visible = $documents->filter(function ($document) use ($actorUserId) {
+                $recipients = $document->recipients ?? [];
+
+                foreach ($recipients as $recipient) {
+                    if ((int) ($recipient['recipient_user_id'] ?? 0) === $actorUserId && (bool) ($recipient['is_active'] ?? false) === true) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })->values();
+        } else {
+            $visible = collect();
+        }
+
+        return $visible->map(function ($document) {
+            $documentId = (string) $document->getKey();
+
+            return [
+                'document_id' => $documentId,
+                'file_name' => $document->file_name,
+                'mime_type' => $document->mime_type,
+                'size_bytes' => (int) ($document->size_bytes ?? 0),
+                'category' => (string) ($document->category ?? 'documents'),
+                'status' => (string) ($document->status ?? 'active'),
+                'created_at' => $document->created_at,
+                'preview_url' => "/api/encrypted-documents/{$documentId}/preview",
+                'download_url' => "/api/encrypted-documents/{$documentId}/download",
+                'delete_url' => "/api/encrypted-documents/{$documentId}",
+            ];
+        })->all();
     }
 
 }

@@ -7,6 +7,7 @@ use MicrosoftAzure\Storage\Blob\BlobRestProxy;
 use MicrosoftAzure\Storage\Blob\Models\CreateBlockBlobOptions; 
 use MicrosoftAzure\Storage\Blob\Models\ListBlobsOptions; 
 use App\Models\Metadata; 
+use App\Models\FileMetadata;
 use App\Models\LawCase;
 use Illuminate\Http\JsonResponse;
 
@@ -47,7 +48,7 @@ class AzureController extends Controller {
         return null;
     }
 
-    private function denyIfArchivedAndNotAdmin(Request $request, ?int $caseId): ?JsonResponse
+    private function denyIfArchived(Request $request, ?int $caseId): ?JsonResponse
     {
         if (!$caseId) {
             return null;
@@ -58,17 +59,20 @@ class AzureController extends Controller {
             return response()->json(['error' => 'Case not found'], 404);
         }
 
-        $actor = $this->resolveActor($request);
-        $isAdmin = $actor['role'] === 'admin';
         $isArchived = strtolower((string) $case->status) === 'archived';
 
-        if ($isArchived && !$isAdmin) {
+        if ($isArchived) {
             return response()->json([
-                'error' => 'This case is archived. Only admin can make changes.'
+                'error' => 'This case is archived. Upload and delete actions are blocked.'
             ], 403);
         }
 
         return null;
+    }
+
+    private function deletePathMetadata(string $path): int
+    {
+        return FileMetadata::where('blob_path', $path)->delete();
     }
     
     /* |-------------------------------------------------------------------------- | 1️⃣ Upload File Into Folder |-------------------------------------------------------------------------- */ 
@@ -79,7 +83,7 @@ class AzureController extends Controller {
 
         $requestCaseId = $request->input('caseId');
         $caseId = is_numeric($requestCaseId) ? (int) $requestCaseId : $this->extractCaseIdFromPath($folderPath);
-        if ($denied = $this->denyIfArchivedAndNotAdmin($request, $caseId)) {
+        if ($denied = $this->denyIfArchived($request, $caseId)) {
             return $denied;
         }
 
@@ -104,13 +108,27 @@ class AzureController extends Controller {
     /* |-------------------------------------------------------------------------- | 3️⃣ Delete File By Full Path |-------------------------------------------------------------------------- */ 
     public function delete(Request $request, $path) { 
         $caseId = $this->extractCaseIdFromPath((string) $path);
-        if ($denied = $this->denyIfArchivedAndNotAdmin($request, $caseId)) {
+        if ($denied = $this->denyIfArchived($request, $caseId)) {
             return $denied;
         }
 
         try { 
-            $this->client->deleteBlob($this->container, $path); 
-            return response()->json([ 'message' => 'File deleted successfully' ]); 
+            $this->client->deleteBlob($this->container, $path);
+
+            try {
+                $deletedMetadata = $this->deletePathMetadata((string) $path);
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'message' => 'File deleted from storage, but failed to delete MongoDB path metadata.',
+                    'path' => (string) $path,
+                ], 500);
+            }
+
+            return response()->json([
+                'message' => 'File deleted successfully',
+                'path' => (string) $path,
+                'metadata_deleted_count' => $deletedMetadata,
+            ]);
         } catch (\Exception $e) { 
             return response()->json([ 'error' => 'Delete failed: ' . $e->getMessage() ], 404); 
         } 
@@ -140,13 +158,27 @@ class AzureController extends Controller {
         }
 
         $caseId = $this->extractCaseIdFromPath($path);
-        if ($denied = $this->denyIfArchivedAndNotAdmin($request, $caseId)) {
+        if ($denied = $this->denyIfArchived($request, $caseId)) {
             return $denied;
         }
 
         try {
             $this->client->deleteBlob($this->container, $path);
-            return response()->json(['message' => 'File deleted successfully']);
+
+            try {
+                $deletedMetadata = $this->deletePathMetadata($path);
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'message' => 'File deleted from storage, but failed to delete MongoDB path metadata.',
+                    'path' => $path,
+                ], 500);
+            }
+
+            return response()->json([
+                'message' => 'File deleted successfully',
+                'path' => $path,
+                'metadata_deleted_count' => $deletedMetadata,
+            ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Delete failed: ' . $e->getMessage()], 404);
         }

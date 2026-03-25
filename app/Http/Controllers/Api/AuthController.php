@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use App\Mail\ResetPasswordMail;
+use App\Models\UserPicture;
+use App\Services\AzureStorage;
 
 class AuthController extends Controller
 {
@@ -34,23 +36,36 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('api-token')->plainTextToken;
+        $userPayload = $user->toArray();
+        $userPayload['photo'] = $this->resolveUserPhotoUrl((int) $user->id, (string) $user->firmID);
 
         return response()->json([
             'message' => 'Login successful',
             'role'    => $user->role,
             'token'   => $token,
-            'user'    => $user, // ✅ FULL USER OBJECT
+            'user'    => $userPayload,
         ]);
     }
 
     // Logout user
     public function logout(Request $request){
-        // Revoke the current user's token
-        $request->user()->currentAccessToken()->delete();
+        try {
+            // Revoke the current user's token
+            $token = $request->user()->currentAccessToken();
+            
+            if ($token) {
+                $token->delete();
+            }
 
-        return response()->json([
-            'message' => 'Logged out successfully.'
-        ]);
+            return response()->json([
+                'message' => 'Logged out successfully.'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Logout failed.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
     
      // Step 1: Send OTP (optional if already sent)
@@ -193,6 +208,28 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Password reset successfully.'
         ], 200);
+    }
+
+    private function resolveUserPhotoUrl(int $userId, string $firmId): ?string
+    {
+        $picture = UserPicture::where('firm_id', $firmId)
+            ->orWhere('user_id', $userId)
+            ->latest('updated_at')
+            ->first();
+
+        if (!$picture) {
+            return null;
+        }
+
+        if (!empty($picture->photo_url)) {
+            return (string) $picture->photo_url;
+        }
+
+        if (!empty($picture->blob_path)) {
+            return AzureStorage::url((string) $picture->blob_path);
+        }
+
+        return null;
     }
 }
 
