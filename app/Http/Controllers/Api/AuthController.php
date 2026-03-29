@@ -24,7 +24,8 @@ class AuthController extends Controller
     {
         $request->validate([
             'email' => 'required|email',
-            'password' => 'required'
+            'password' => 'required',
+            'remember' => 'nullable|boolean',
         ]);
 
         $user = User::where('email', $request->email)->first();
@@ -35,14 +36,25 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $token = $user->createToken('api-token')->plainTextToken;
+        $remember = (bool) $request->boolean('remember');
+        $expirationMinutes = $remember
+            ? (int) config('sanctum.remember_me_expiration', 43200)
+            : (int) config('sanctum.session_expiration', 1440);
+        $expiresAt = now()->addMinutes($expirationMinutes);
+
+        $token = $user->createToken('api-token', ['*'], $expiresAt)->plainTextToken;
         $userPayload = $user->toArray();
-        $userPayload['photo'] = $this->resolveUserPhotoUrl((int) $user->id, (string) $user->firmID);
+        $photoPayload = $this->resolveUserPhoto((int) $user->id, (string) $user->firmID);
+        $userPayload['photo'] = $photoPayload['photo'];
+        $userPayload['photo_blob_path'] = $photoPayload['photo_blob_path'];
+        $userPayload['photo_url'] = $photoPayload['photo_url'];
 
         return response()->json([
             'message' => 'Login successful',
             'role'    => $user->role,
             'token'   => $token,
+            'remember' => $remember,
+            'expires_at' => $expiresAt->toIso8601String(),
             'user'    => $userPayload,
         ]);
     }
@@ -210,7 +222,7 @@ class AuthController extends Controller
         ], 200);
     }
 
-    private function resolveUserPhotoUrl(int $userId, string $firmId): ?string
+    private function resolveUserPhoto(int $userId, string $firmId): array
     {
         $picture = UserPicture::where('firm_id', $firmId)
             ->orWhere('user_id', $userId)
@@ -218,18 +230,23 @@ class AuthController extends Controller
             ->first();
 
         if (!$picture) {
-            return null;
+            return [
+                'photo' => null,
+                'photo_blob_path' => null,
+                'photo_url' => null,
+            ];
         }
 
-        if (!empty($picture->photo_url)) {
-            return (string) $picture->photo_url;
-        }
+        $blobPath = !empty($picture->blob_path) ? (string) $picture->blob_path : null;
+        $photoUrl = !empty($picture->photo_url)
+            ? (string) $picture->photo_url
+            : ($blobPath ? AzureStorage::url($blobPath) : null);
 
-        if (!empty($picture->blob_path)) {
-            return AzureStorage::url((string) $picture->blob_path);
-        }
-
-        return null;
+        return [
+            'photo' => null,
+            'photo_blob_path' => $blobPath,
+            'photo_url' => $photoUrl,
+        ];
     }
 }
 

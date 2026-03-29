@@ -19,29 +19,43 @@ class UserController extends Controller
 {
     // GET /api/users
     public function index(){
-        $users = User::select('id', 'name', 'email', 'role', 'status', 'firmID', 'key')
-            ->get()
-            ->map(function ($user) {
-                // Only for clients, check if they have at least one case
-                $caseId = null;
-                if ($user->role === 'client') {
-                    $case = LawCase::where('clientID', $user->id)->first();
-                    if ($case) {
-                        $caseId = $case->caseId; // assign caseId if exists
-                    }
-                }
+        $users = User::select('id', 'name', 'email', 'role', 'status', 'firmID', 'key')->get();
 
-                return [
-                    'id'       => $user->id,
-                    'name'     => $user->name,
-                    'email'    => $user->email,
-                    'role'     => $user->role,
-                    'status'   => $user->status,
-                    'firmID'   => $user->firmID,
-                    'caseId'   => $caseId,
-                    'key'      => $user->key
-                ];
-            });
+        $clientIds = $users
+            ->where('role', 'client')
+            ->pluck('id')
+            ->values()
+            ->all();
+
+        $caseIdByClientId = [];
+        if (!empty($clientIds)) {
+            $caseIdByClientId = LawCase::whereIn('clientID', $clientIds)
+                ->orderBy('caseId')
+                ->get(['clientID', 'caseId'])
+                ->groupBy('clientID')
+                ->map(function ($rows) {
+                    return (int) $rows->first()->caseId;
+                })
+                ->toArray();
+        }
+
+        $users = $users->map(function ($user) use ($caseIdByClientId) {
+            $caseId = null;
+            if ($user->role === 'client') {
+                $caseId = $caseIdByClientId[(int) $user->id] ?? null;
+            }
+
+            return [
+                'id'       => $user->id,
+                'name'     => $user->name,
+                'email'    => $user->email,
+                'role'     => $user->role,
+                'status'   => $user->status,
+                'firmID'   => $user->firmID,
+                'caseId'   => $caseId,
+                'key'      => $user->key
+            ];
+        });
 
         return response()->json($users);
     }
@@ -132,7 +146,9 @@ class UserController extends Controller
             'message' => 'User created successfully',
             'user' => [
                 ...$user->toArray(),
-                'photo' => $photoUrl,
+                'photo' => 'data:' . ($picture->getClientMimeType() ?: 'image/jpeg') . ';base64,' . base64_encode(file_get_contents($picture->getRealPath())),
+                'photo_url' => $photoUrl,
+                'photo_blob_path' => $blobPath,
             ],
         ], 201);
     }
@@ -190,7 +206,9 @@ class UserController extends Controller
                 'maritalStatus' => $client->maritalStatus,
                 'status'        => $client->status,
                 'created_at'    => $client->created_at,
-                'photo'         => $this->resolveUserPhotoUrl((int) $client->id, (string) $client->firmID),
+                'photo'         => null,
+                'photo_url'     => $this->resolveUserPhotoUrl((int) $client->id, (string) $client->firmID),
+                'photo_blob_path' => $this->resolveUserPhotoBlobPath((int) $client->id, (string) $client->firmID),
             ],
             'cases' => $cases
         ]);
@@ -256,7 +274,9 @@ class UserController extends Controller
                 'maritalStatus' => $lawyer->maritalStatus,
                 'status'        => $lawyer->status,
                 'created_at'    => $lawyer->created_at,
-                'photo'         => $this->resolveUserPhotoUrl((int) $lawyer->id, (string) $lawyer->firmID),
+                'photo'         => null,
+                'photo_url'     => $this->resolveUserPhotoUrl((int) $lawyer->id, (string) $lawyer->firmID),
+                'photo_blob_path' => $this->resolveUserPhotoBlobPath((int) $lawyer->id, (string) $lawyer->firmID),
             ],
             'cases' => $cases
         ]);
@@ -292,7 +312,9 @@ class UserController extends Controller
                 'maritalStatus' => $admin->maritalStatus,
                 'status'        => $admin->status,
                 'created_at'    => $admin->created_at,
-                'photo'         => $this->resolveUserPhotoUrl((int) $admin->id, (string) $admin->firmID),
+                'photo'         => null,
+                'photo_url'     => $this->resolveUserPhotoUrl((int) $admin->id, (string) $admin->firmID),
+                'photo_blob_path' => $this->resolveUserPhotoBlobPath((int) $admin->id, (string) $admin->firmID),
             ],
             'cases' => [], // empty array
         ]);
@@ -441,12 +463,28 @@ class UserController extends Controller
             ->all();
     }
 
-    private function resolveUserPhotoUrl(int $userId, string $firmId): ?string
+    private function findUserPicture(int $userId, string $firmId): ?UserPicture
     {
-        $picture = UserPicture::where('firm_id', $firmId)
+        return UserPicture::where('firm_id', $firmId)
             ->orWhere('user_id', $userId)
             ->latest('updated_at')
             ->first();
+    }
+
+    private function resolveUserPhotoBlobPath(int $userId, string $firmId): ?string
+    {
+        $picture = $this->findUserPicture($userId, $firmId);
+
+        if (!$picture || empty($picture->blob_path)) {
+            return null;
+        }
+
+        return (string) $picture->blob_path;
+    }
+
+    private function resolveUserPhotoUrl(int $userId, string $firmId): ?string
+    {
+        $picture = $this->findUserPicture($userId, $firmId);
 
         if (!$picture) {
             return null;

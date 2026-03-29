@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request; 
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 use MicrosoftAzure\Storage\Blob\BlobRestProxy; 
 use MicrosoftAzure\Storage\Blob\Models\CreateBlockBlobOptions; 
 use MicrosoftAzure\Storage\Blob\Models\ListBlobsOptions; 
@@ -74,6 +75,19 @@ class AzureController extends Controller {
     {
         return FileMetadata::where('blob_path', $path)->delete();
     }
+
+    private function listCacheKey(string $folder): string
+    {
+        return 'azure:list:' . md5($folder);
+    }
+
+    private function invalidateListCacheByPath(string $path): void
+    {
+        $folder = trim((string) Str::beforeLast($path, '/'));
+        if ($folder !== '') {
+            Cache::forget($this->listCacheKey($folder . '/'));
+        }
+    }
     
     /* |-------------------------------------------------------------------------- | 1️⃣ Upload File Into Folder |-------------------------------------------------------------------------- */ 
     public function upload(Request $request) { 
@@ -92,6 +106,7 @@ class AzureController extends Controller {
         $options = new CreateBlockBlobOptions(); 
         $options->setContentType($file->getMimeType()); 
         $this->client->createBlockBlob($this->container, $blobName, $content, $options); 
+        Cache::forget($this->listCacheKey($folderPath));
         return response()->json([ 'message' => 'File uploaded successfully', 'path' => $blobName ]); 
     } 
     
@@ -114,6 +129,7 @@ class AzureController extends Controller {
 
         try { 
             $this->client->deleteBlob($this->container, $path);
+            $this->invalidateListCacheByPath((string) $path);
 
             try {
                 $deletedMetadata = $this->deletePathMetadata((string) $path);
@@ -164,6 +180,7 @@ class AzureController extends Controller {
 
         try {
             $this->client->deleteBlob($this->container, $path);
+            $this->invalidateListCacheByPath($path);
 
             try {
                 $deletedMetadata = $this->deletePathMetadata($path);
@@ -187,19 +204,30 @@ class AzureController extends Controller {
     public function list(Request $request) { 
         try { 
             $folder = $request->query('folder'); 
-            if (!$folder) { 
+            $actor = $this->resolveActor($request);
+            
+            // Allow admins to list all files without a folder parameter
+            if (!$folder && strtolower($actor['role']) !== 'admin') {
                 return response()->json([ 'error' => 'Folder is required' ], 400); 
-            } 
+            }
+
+            $listPrefix = $folder ?? 'cases/';
+
+            $files = Cache::remember($this->listCacheKey((string) $listPrefix), 15, function () use ($listPrefix, $folder) {
+                $options = new ListBlobsOptions(); 
+                $options->setPrefix($listPrefix); 
+                $blobs = $this->client->listBlobs($this->container, $options); 
+
+                $files = [];
+                foreach ($blobs->getBlobs() as $blob) { 
+                    $name = $blob->getName();
+                    $files[] = str_replace((string) $listPrefix, '', $name); 
+                }
+
+                return array_values(array_filter($files));
+            });
             
-            $options = new ListBlobsOptions(); 
-            $options->setPrefix($folder); 
-            $blobs = $this->client->listBlobs($this->container, $options); 
-            $files = []; foreach ($blobs->getBlobs() as $blob) { 
-                $name = $blob->getName(); // Remove folder prefix 
-                $files[] = str_replace($folder, '', $name); 
-            } 
-            
-            return response()->json([ 'folder' => $folder, 'files' => array_values(array_filter($files)) ]); 
+            return response()->json([ 'folder' => $folder ?? 'all', 'files' => $files ]); 
         } catch (\Exception $e) { 
             $folder = (string) $request->query('folder', '');
             $message = $e->getMessage();

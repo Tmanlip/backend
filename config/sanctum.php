@@ -51,6 +51,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Token Expiration Profiles (minutes)
+    |--------------------------------------------------------------------------
+    |
+    | Used by custom login logic to issue per-token expiration based on
+    | remember-me preference.
+    |
+    */
+
+    'session_expiration' => env('SANCTUM_SESSION_EXPIRATION', 60 * 24),
+    'remember_me_expiration' => env('SANCTUM_REMEMBER_ME_EXPIRATION', 60 * 24 * 30),
+
+    /*
+    |--------------------------------------------------------------------------
     | Token Prefix
     |--------------------------------------------------------------------------
     |

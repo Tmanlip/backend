@@ -133,11 +133,17 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Document not found'], 404);
         }
 
-        $recipientKey = $this->findActiveRecipient($document, (int) $actor->id);
-
-        if (!$recipientKey) {
+        // Check if user can access this document (recipient or admin)
+        if (!$this->canAccessDocument($actor, $document)) {
             return response()->json(['message' => 'No access to this document'], 403);
         }
+
+        // For admins, decrypt server-side and return plaintext
+        if (strtolower((string) $actor->role) === 'admin') {
+            return $this->getPayloadForAdmin($document);
+        }
+
+        $recipientKey = $this->findActiveRecipient($document, (int) $actor->id);
 
         $cipherContent = AzureStorage::get((string) $document->blob_path);
         if ($cipherContent === null) {
@@ -390,6 +396,17 @@ class EncryptedDocumentController extends Controller
         return null;
     }
 
+    private function canAccessDocument(User $actor, FileMetadata $document): bool
+    {
+        // Admins can access all documents
+        if (strtolower((string) $actor->role) === 'admin') {
+            return true;
+        }
+
+        // Check if user is an active recipient
+        return $this->findActiveRecipient($document, (int) $actor->id) !== null;
+    }
+
     private function findActiveRecipient(FileMetadata $document, int $recipientUserId): ?array
     {
         foreach (($document->recipients ?? []) as $entry) {
@@ -407,6 +424,67 @@ class EncryptedDocumentController extends Controller
         return null;
     }
 
+    private function getPayloadForAdmin(FileMetadata $document): JsonResponse
+    {
+        try {
+            $cipherContent = AzureStorage::get((string) $document->blob_path);
+            if ($cipherContent === null) {
+                return response()->json(['message' => 'Encrypted file not found in storage'], 404);
+            }
+
+            $dek = base64_decode(Crypt::decryptString((string) $document->server_encrypted_dek), true);
+            if ($dek === false || strlen($dek) !== 32) {
+                return response()->json(['message' => 'Recovered DEK is invalid'], 500);
+            }
+
+            $plainContent = $this->crypto->decrypt(
+                $cipherContent,
+                $dek,
+                (string) $document->nonce,
+                (string) $document->tag
+            );
+
+            return response()->json([
+                'document_id' => (string) $document->getKey(),
+                'file_name' => $document->file_name,
+                'mime_type' => $document->mime_type,
+                'plaintext' => base64_encode($plainContent),
+                'note' => 'Admin-decrypted plaintext. Downloaded server-side.',
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['message' => 'Unable to decrypt document content'], 500);
+        }
+    }
+
+    private function decryptDocumentServerSide(FileMetadata $document): JsonResponse|array
+    {
+        try {
+            $cipherContent = AzureStorage::get((string) $document->blob_path);
+            if ($cipherContent === null) {
+                return response()->json(['message' => 'Encrypted file not found in storage'], 404);
+            }
+
+            $dek = base64_decode(Crypt::decryptString((string) $document->server_encrypted_dek), true);
+            if ($dek === false || strlen($dek) !== 32) {
+                return response()->json(['message' => 'Recovered DEK is invalid'], 500);
+            }
+
+            $plainContent = $this->crypto->decrypt(
+                $cipherContent,
+                $dek,
+                (string) $document->nonce,
+                (string) $document->tag
+            );
+
+            return [
+                'document' => $document,
+                'plaintext' => $plainContent,
+            ];
+        } catch (Throwable $e) {
+            return response()->json(['message' => 'Unable to decrypt document content'], 500);
+        }
+    }
+
     private function resolveDocumentAndActorAccess(Request $request, string $documentId): JsonResponse|array
     {
         $actor = $request->user();
@@ -419,9 +497,14 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Document not found'], 404);
         }
 
-        $recipientKey = $this->findActiveRecipient($document, (int) $actor->id);
-        if (!$recipientKey) {
+        // Check if user can access this document (recipient or admin)
+        if (!$this->canAccessDocument($actor, $document)) {
             return response()->json(['message' => 'No access to this document'], 403);
+        }
+
+        // For admins, decrypt server-side
+        if (strtolower((string) $actor->role) === 'admin') {
+            return $this->decryptDocumentServerSide($document);
         }
 
         $cipherContent = AzureStorage::get((string) $document->blob_path);
