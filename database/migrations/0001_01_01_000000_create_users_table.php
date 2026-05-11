@@ -17,9 +17,14 @@ return new class extends Migration
             $table->string('password');
             $table->integer('age');
             $table->string('ICNumber');
+            $table->string('key', 64)->nullable();
             $table->string('phoneNumber');
             $table->string('HomeAddress');
             $table->string('firmID')->unique();
+            $table->string('otp', 6)->nullable();
+            $table->timestamp('otp_expires_at')->nullable();
+            $table->text('rsa_public_key')->nullable();
+            $table->text('rsa_private_key')->nullable();
             $table->enum('maritalStatus', ['Single', 'Married', 'Divorced'])->default('Single');
             $table->enum('gender', ['Male','Female'])->default('Male');
             $table->enum('role', ['admin', 'client', 'lawyer'])->default('client');

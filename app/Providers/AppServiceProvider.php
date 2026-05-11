@@ -22,24 +22,35 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $resolveEmailKey = static function (Request $request): string {
+            $emailInput = $request->input('email');
+
+            if (!is_string($emailInput)) {
+                return 'guest';
+            }
+
+            $email = strtolower(trim($emailInput));
+            return $email !== '' ? $email : 'guest';
+        };
+
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(120)->by($request->user()?->id ?: $request->ip());
         });
 
-        RateLimiter::for('auth-login', function (Request $request) {
-            $email = (string) $request->input('email', 'guest');
+        RateLimiter::for('auth-login', function (Request $request) use ($resolveEmailKey) {
+            $email = $resolveEmailKey($request);
 
             return Limit::perMinute(5)->by($email.'|'.$request->ip());
         });
 
-        RateLimiter::for('auth-reset', function (Request $request) {
-            $email = (string) $request->input('email', 'guest');
+        RateLimiter::for('auth-reset', function (Request $request) use ($resolveEmailKey) {
+            $email = $resolveEmailKey($request);
 
             return Limit::perMinute(3)->by($email.'|'.$request->ip());
         });
 
-        RateLimiter::for('auth-otp', function (Request $request) {
-            $email = (string) $request->input('email', 'guest');
+        RateLimiter::for('auth-otp', function (Request $request) use ($resolveEmailKey) {
+            $email = $resolveEmailKey($request);
 
             return Limit::perMinute(5)->by($email.'|'.$request->ip());
         });

@@ -32,6 +32,8 @@
             'rsa_public_key',
             'rsa_private_key',
             'firmID',
+            'failed_login_attempts',
+            'account_locked_at',
         ];
 
         protected $hidden = [
@@ -46,6 +48,7 @@
             return [
                 'email_verified_at' => 'datetime',
                 'password' => 'hashed',
+                'account_locked_at' => 'datetime',
             ];
         }
 
@@ -58,6 +61,21 @@
         public function clientCases()
         {
             return $this->hasMany(LawCase::class, 'clientID', 'id');
+        }
+
+        public function lawyerMeetings()
+        {
+            return $this->hasMany(Meeting::class, 'lawyerID', 'id');
+        }
+
+        public function clientMeetings()
+        {
+            return $this->hasMany(Meeting::class, 'clientID', 'id');
+        }
+
+        public function organizedMeetings()
+        {
+            return $this->hasMany(Meeting::class, 'organizer_user_id', 'id');
         }
 
         // Auto-generate firmID & prevent modification

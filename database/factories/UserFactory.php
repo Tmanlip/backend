@@ -12,9 +12,12 @@ class UserFactory extends Factory
 
     public function definition(): array
     {
+        $username = strtolower($this->faker->unique()->userName());
+
         return [
             'name' => $this->faker->name(),
             'email' => $this->faker->unique()->safeEmail(),
+            'username' => $username,
             'email_verified_at' => now(),
             'password' => Hash::make('password123'),
             'role' => 'client',
@@ -23,6 +26,7 @@ class UserFactory extends Factory
             'ICNumber' => '990101-01-1234',
             'phoneNumber' => '0123456789',
             'HomeAddress' => 'Test Address',
+            'firmID' => strtoupper($this->faker->unique()->bothify('U###??')),
             'gender' => 'Male',
             'maritalStatus' => 'Single',
         ];

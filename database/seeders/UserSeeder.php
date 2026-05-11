@@ -8,6 +8,7 @@ use App\Models\LawCase;
 use App\Models\Metadata;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Controllers\AzureController;
+use App\Services\InvoiceProgressService;
 use App\Services\UserKeyService;
 
 class UserSeeder extends Seeder
@@ -139,40 +140,146 @@ class UserSeeder extends Seeder
         $cases = [
             [
                 'title' => 'Case A',
+                'caseType' => 'Litigation',
                 'description' => 'Description of Case A',
                 'lawyerID' => $lawyer1->id,
                 'clientID' => $client1->id,
                 'lawyerFirmID' => $lawyer1->firmID,
                 'clientFirmID' => $client1->firmID,
+                'oppositionLawyerName' => $lawyer2?->name,
+                'oppositionLawyerFirmID' => $lawyer2?->firmID,
+                'case_type_fee_json' => [
+                    'initial' => [
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Case Merits Review',
+                            'selectedFee' => 5000,
+                            'estimationFeesRange' => '5000 - 25000'
+                        ]
+                    ],
+                    'first' => [
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Demand Letter and Reply',
+                            'selectedFee' => 5000,
+                            'estimationFeesRange' => '3000 - 10000'
+                        ]
+                    ],
+                    'second' => [
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Settlement Agreement',
+                            'selectedFee' => 15000,
+                            'estimationFeesRange' => '15000 - 25000'
+                        ]
+                    ],
+                    'third' => [
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Court Process Planning',
+                            'selectedFee' => 3000,
+                            'estimationFeesRange' => '3000 - 30000'
+                        ]
+                    ],
+                    'final' => [
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Premium Retainer Package',
+                            'selectedFee' => 15000,
+                            'estimationFeesRange' => '15000 per month'
+                        ]
+                    ]
+                ],
+                'expected_initial_payment' => 5000,
+                'expected_first_payment' => 5000,
+                'expected_second_payment' => 15000,
+                'expected_third_payment' => 3000,
+                'expected_final_payment' => 15000,
             ],
             [
                 'title' => 'Case B',
+                'caseType' => 'Corporate',
                 'description' => 'Description of Case B',
                 'lawyerID' => $lawyer2->id,
                 'clientID' => $client2->id,
                 'lawyerFirmID' => $lawyer2->firmID,
                 'clientFirmID' => $client2->firmID,
+                'oppositionLawyerName' => 'External Counsel',
+                'oppositionLawyerFirmID' => null,
+                'case_type_fee_json' => [
+                    'initial' => [
+                        [
+                            'practiceArea' => 'Corporate',
+                            'typeOfWork' => 'Company Incorporation Structuring and Restructuring',
+                            'selectedFee' => 5000,
+                            'estimationFeesRange' => '5000 - 25000'
+                        ]
+                    ],
+                    'first' => [
+                        [
+                            'practiceArea' => 'Corporate',
+                            'typeOfWork' => 'Acquisition Agreement',
+                            'selectedFee' => 15000,
+                            'estimationFeesRange' => '15000 - 25000'
+                        ]
+                    ],
+                    'second' => [
+                        [
+                            'practiceArea' => 'Corporate',
+                            'typeOfWork' => 'Due Diligence Exercise',
+                            'selectedFee' => 50000,
+                            'estimationFeesRange' => '10000 - 250000'
+                        ]
+                    ],
+                    'third' => [
+                        [
+                            'practiceArea' => 'Corporate',
+                            'typeOfWork' => 'Employment Agreement',
+                            'selectedFee' => 5500,
+                            'estimationFeesRange' => '3000 - 25000'
+                        ]
+                    ],
+                    'final' => [
+                        [
+                            'practiceArea' => 'Corporate',
+                            'typeOfWork' => 'Elite Retainer Package',
+                            'selectedFee' => 20000,
+                            'estimationFeesRange' => '20000 per month'
+                        ]
+                    ]
+                ],
+                'expected_initial_payment' => 5000,
+                'expected_first_payment' => 15000,
+                'expected_second_payment' => 50000,
+                'expected_third_payment' => 5500,
+                'expected_final_payment' => 20000,
             ],
         ];
 
         $azure = new AzureController();
+        $invoiceProgressService = new InvoiceProgressService();
 
         foreach ($cases as $data) {
+            $caseData = $data;
+            $caseData['case_type_fee_json'] = $data['case_type_fee_json'] ?? null;
+
             $case = LawCase::updateOrCreate(
                 ['title' => $data['title']],
-                $data
+                $caseData
             );
+
+            $invoiceProgressService->syncCaseProgress($case);
 
             // Store MongoDB metadata
             $metadata = Metadata::storeCase(
                 (string) $case->caseId,
-                $data['lawyerFirmID'],
-                $data['clientFirmID']
+                $caseData['lawyerFirmID'],
+                $caseData['clientFirmID']
             );
 
             // Create Azure folder structure
             $caseFolder = "cases/{$case->caseId}/";
-            $subFolders = ['documents', 'reports', 'cheques'];
+            $subFolders = ['documents', 'reports', 'invoices'];
 
             foreach ($subFolders as $folder) {
                 $blobName = $caseFolder . $folder . '/placeholder.txt';
@@ -185,6 +292,6 @@ class UserSeeder extends Seeder
             $azure->createBlobFromString($caseFolder . 'metadata.txt', $metadataJson);
         }
 
-        echo "Seeder completed: users with AES+RSA keys, cases, MongoDB metadata, and Azure folders created.\n";
+        echo "Seeder completed: users, cases with phase-based fee selections, MongoDB metadata, Azure folders, and synced progress created.\n";
     }
 }

@@ -9,12 +9,15 @@ use MicrosoftAzure\Storage\Blob\Models\CreateBlockBlobOptions;
 use MicrosoftAzure\Storage\Blob\Models\ListBlobsOptions; 
 use App\Models\Metadata; 
 use App\Models\FileMetadata;
+use App\Models\Invoice;
 use App\Models\LawCase;
+use App\Services\InvoiceProgressService;
 use Illuminate\Http\JsonResponse;
 
 class AzureController extends Controller { 
     private $client; 
     private $container; 
+    private InvoiceProgressService $invoiceProgressService;
     public function __construct() { 
         $connectionString = env('AZURE_STORAGE_CONNECTION_STRING');
         if (!empty($connectionString)) {
@@ -28,7 +31,19 @@ class AzureController extends Controller {
         }
         
         $this->container = env('AZURE_STORAGE_CONTAINER'); 
+        $this->invoiceProgressService = app(InvoiceProgressService::class);
     } 
+
+    private function inferInvoiceStage(string $fileName): ?string
+    {
+        foreach (['initial', 'first', 'second', 'third', 'final'] as $stage) {
+            if (preg_match('/^' . preg_quote($stage, '/') . '[-_]/i', $fileName) === 1) {
+                return $stage;
+            }
+        }
+
+        return null;
+    }
 
     private function resolveActor(Request $request): array
     {
@@ -76,6 +91,22 @@ class AzureController extends Controller {
         return FileMetadata::where('blob_path', $path)->delete();
     }
 
+    private function syncInvoiceDeletion(string $path, ?int $caseId): ?float
+    {
+        $deletedInvoices = Invoice::where('blob_path', $path)->delete();
+
+        if ($deletedInvoices <= 0 || !$caseId) {
+            return null;
+        }
+
+        $lawCase = LawCase::find($caseId);
+        if (!$lawCase) {
+            return null;
+        }
+
+        return $this->invoiceProgressService->syncCaseProgress($lawCase);
+    }
+
     private function listCacheKey(string $folder): string
     {
         return 'azure:list:' . md5($folder);
@@ -91,7 +122,13 @@ class AzureController extends Controller {
     
     /* |-------------------------------------------------------------------------- | 1️⃣ Upload File Into Folder |-------------------------------------------------------------------------- */ 
     public function upload(Request $request) { 
-        $request->validate([ 'file' => 'required|file|max:10240', 'folder' => 'required|string' ]); 
+        $request->validate([
+            'file' => 'required|file|max:10240',
+            'folder' => 'required|string',
+            'invoice_stage' => 'nullable|in:initial,first,second,third,final',
+            'expected_amount' => 'nullable|numeric|min:0.01',
+            'paid_amount' => 'nullable|numeric|min:0',
+        ]);
         $file = $request->file('file'); 
         $folderPath = rtrim($request->folder, '/') . '/'; 
 
@@ -101,13 +138,77 @@ class AzureController extends Controller {
             return $denied;
         }
 
+        $isInvoiceFolder = preg_match('#/invoices/$#i', $folderPath) === 1;
+        if ($isInvoiceFolder && $caseId) {
+            $invoiceStage = $request->input('invoice_stage') ?: $this->inferInvoiceStage($file->getClientOriginalName());
+            if (!$invoiceStage) {
+                return response()->json([
+                    'error' => 'invoice_stage is required for invoice uploads'
+                ], 422);
+            }
+
+            $expectedAmountInput = $request->input('expected_amount');
+            if ($expectedAmountInput === null || $expectedAmountInput === '') {
+                return response()->json([
+                    'error' => 'expected_amount is required for invoice uploads'
+                ], 422);
+            }
+        }
+
         $blobName = $folderPath . $file->getClientOriginalName(); 
         $content = fopen($file->getPathname(), 'r'); 
         $options = new CreateBlockBlobOptions(); 
         $options->setContentType($file->getMimeType()); 
         $this->client->createBlockBlob($this->container, $blobName, $content, $options); 
+
+        $updatedProgress = null;
+        if ($isInvoiceFolder && $caseId) {
+            $invoiceStage = $request->input('invoice_stage') ?: $this->inferInvoiceStage($file->getClientOriginalName());
+
+            if (!$invoiceStage) {
+                return response()->json([
+                    'error' => 'invoice_stage is required for invoice uploads'
+                ], 422);
+            }
+
+            $expectedAmountInput = $request->input('expected_amount');
+            if ($expectedAmountInput === null || $expectedAmountInput === '') {
+                return response()->json([
+                    'error' => 'expected_amount is required for invoice uploads'
+                ], 422);
+            }
+
+            $expectedAmount = (float) $expectedAmountInput;
+            $paidAmount = (float) $request->input('paid_amount', 0);
+
+            FileMetadata::create([
+                'type' => 'invoice_payment',
+                'case_id' => (int) $caseId,
+                'category' => 'invoices',
+                'uploader_user_id' => (int) ($request->user()?->id ?? 0),
+                'file_name' => $file->getClientOriginalName(),
+                'mime_type' => (string) $file->getMimeType(),
+                'size_bytes' => (int) $file->getSize(),
+                'blob_path' => $blobName,
+                'content_hash_sha256' => hash_file('sha256', $file->getPathname()),
+                'status' => 'active',
+                'invoice_stage' => $invoiceStage,
+                'expected_amount' => $expectedAmount,
+                'paid_amount' => $paidAmount,
+            ]);
+
+            $lawCase = LawCase::find((int) $caseId);
+            if ($lawCase) {
+                $updatedProgress = $this->invoiceProgressService->syncCaseProgress($lawCase);
+            }
+        }
+
         Cache::forget($this->listCacheKey($folderPath));
-        return response()->json([ 'message' => 'File uploaded successfully', 'path' => $blobName ]); 
+        return response()->json([
+            'message' => 'File uploaded successfully',
+            'path' => $blobName,
+            'case_progress' => $updatedProgress,
+        ]); 
     } 
     
     /* |-------------------------------------------------------------------------- | 2️⃣ Read File By Full Path |-------------------------------------------------------------------------- */ 
@@ -140,10 +241,16 @@ class AzureController extends Controller {
                 ], 500);
             }
 
+            $updatedProgress = null;
+            if (preg_match('#/invoices/#i', (string) $path) === 1) {
+                $updatedProgress = $this->syncInvoiceDeletion((string) $path, $caseId);
+            }
+
             return response()->json([
                 'message' => 'File deleted successfully',
                 'path' => (string) $path,
                 'metadata_deleted_count' => $deletedMetadata,
+                'case_progress' => $updatedProgress,
             ]);
         } catch (\Exception $e) { 
             return response()->json([ 'error' => 'Delete failed: ' . $e->getMessage() ], 404); 
@@ -191,10 +298,16 @@ class AzureController extends Controller {
                 ], 500);
             }
 
+            $updatedProgress = null;
+            if (preg_match('#/invoices/#i', $path) === 1) {
+                $updatedProgress = $this->syncInvoiceDeletion($path, $caseId);
+            }
+
             return response()->json([
                 'message' => 'File deleted successfully',
                 'path' => $path,
                 'metadata_deleted_count' => $deletedMetadata,
+                'case_progress' => $updatedProgress,
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Delete failed: ' . $e->getMessage()], 404);
@@ -237,7 +350,7 @@ class AzureController extends Controller {
             if (
                 !empty($folder) &&
                 (Str::contains($message, 'AuthorizationFailure') || Str::contains($message, 'not authorized')) &&
-                preg_match('#^cases/\d+/(documents|reports|cheques)/$#', $folder)
+                preg_match('#^cases/\d+/(documents|reports|invoices)/$#', $folder)
             ) {
                 return response()->json([
                     'folder' => $folder,

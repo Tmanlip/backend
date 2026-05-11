@@ -44,24 +44,26 @@ class LogUserInteractionJob implements ShouldQueue
 
     public function handle(): void
     {
-        $data = $this->payload;
+        try {
+            $data = $this->payload;
 
-        $criteria = [
-            'method' => (string) ($data['method'] ?? ''),
-            'path' => (string) ($data['path'] ?? ''),
-        ];
+            if (!empty($data['user_id'])) {
+                $data['user_id'] = (int) $data['user_id'];
+            } else {
+                $data['user_id'] = null;
+                $data['ip'] = (string) ($data['ip'] ?? '');
+            }
 
-        if (!empty($data['user_id'])) {
-            $criteria['user_id'] = (int) $data['user_id'];
-        } else {
-            $criteria['user_id'] = null;
-            $criteria['ip'] = (string) ($data['ip'] ?? '');
+            if (isset($data['payload']) && is_array($data['payload'])) {
+                $data['payload'] = $this->sanitizePayload($data['payload']);
+            }
+
+            AslawLog::create($data);
+        } catch (\Throwable $e) {
+            // Logging should never break auth or request lifecycle.
+            logger()->warning('User interaction log skipped because MongoDB is unavailable.', [
+                'message' => $e->getMessage(),
+            ]);
         }
-
-        if (isset($data['payload']) && is_array($data['payload'])) {
-            $data['payload'] = $this->sanitizePayload($data['payload']);
-        }
-
-        AslawLog::firstOrCreate($criteria, $data);
     }
 }

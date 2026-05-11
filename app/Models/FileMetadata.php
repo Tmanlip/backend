@@ -28,6 +28,9 @@ class FileMetadata extends Model
         'recipients',
         'encrypted_key',
         'iv',
+        'invoice_stage',
+        'expected_amount',
+        'paid_amount',
     ];
 
     public $timestamps = true;
@@ -37,6 +40,8 @@ class FileMetadata extends Model
         'uploader_user_id' => 'integer',
         'size_bytes' => 'integer',
         'dek_version' => 'integer',
+        'expected_amount' => 'float',
+        'paid_amount' => 'float',
         'recipients' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

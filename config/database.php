@@ -115,7 +115,7 @@ return [
 
         'mongodb' => [
             'driver' => 'mongodb',
-            'dsn' => env('MONGODB_URI'),
+            'dsn' => env('MONGODB_URI', env('MONGO_URI')),
             'database' => env('MONGODB_DATABASE', 'aslaw'),
         ],
 

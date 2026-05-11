@@ -11,12 +11,54 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Carbon;
 use App\Services\UserKeyService;
 use App\Services\AzureStorage;
+use App\Services\InvoiceProgressService;
 use Illuminate\Support\Facades\Mail;
 use App\Models\FileMetadata;
 use App\Models\UserPicture;
+use App\Mail\AccountDeactivatedMail;
 
 class UserController extends Controller
 {
+    public function __construct(private readonly InvoiceProgressService $invoiceProgressService)
+    {
+    }
+
+    private function buildExpectedPaymentPhases(LawCase $case): array
+    {
+        return [
+            'initial' => (float) ($case->expected_initial_payment ?? 0),
+            'first' => (float) ($case->expected_first_payment ?? 0),
+            'second' => (float) ($case->expected_second_payment ?? 0),
+            'third' => (float) ($case->expected_third_payment ?? 0),
+            'final' => (float) ($case->expected_final_payment ?? 0),
+        ];
+    }
+
+    private function buildInvoicePaymentPhases(LawCase $case): array
+    {
+        $summaries = $this->invoiceProgressService->getStageSummaries((int) $case->caseId);
+        $expectedByStage = $this->buildExpectedPaymentPhases($case);
+
+        foreach ($expectedByStage as $stage => $expectedDefault) {
+            if (!isset($summaries[$stage])) {
+                $summaries[$stage] = [
+                    'expected' => (float) $expectedDefault,
+                    'paid' => 0.0,
+                    'balance' => (float) $expectedDefault,
+                ];
+                continue;
+            }
+
+            if ((float) ($summaries[$stage]['expected'] ?? 0) <= 0 && (float) $expectedDefault > 0) {
+                $paid = (float) ($summaries[$stage]['paid'] ?? 0);
+                $summaries[$stage]['expected'] = (float) $expectedDefault;
+                $summaries[$stage]['balance'] = round(max((float) $expectedDefault - $paid, 0.0), 2);
+            }
+        }
+
+        return $summaries;
+    }
+
     // GET /api/users
     public function index(){
         $users = User::select('id', 'name', 'email', 'role', 'status', 'firmID', 'key')->get();
@@ -62,18 +104,22 @@ class UserController extends Controller
 
     // POST /api/registerusers
     public function store(Request $request){
+        // Backward compatibility: accept legacy frontend value and normalize.
+        if ($request->input('maritalStatus') === 'Divorce') {
+            $request->merge(['maritalStatus' => 'Divorced']);
+        }
+
         $validated = $request->validate([
             'name'           => 'required|string|max:255',
             'email'          => 'required|email|unique:users,email',
             'username'       => 'required|string|max:50|unique:users,username',
-            'password'       => 'required|min:8',
             'role'           => 'required|in:admin,client,lawyer',
             'age'            => 'required|integer|min:1',
             'ICNumber'       => 'required|string',
             'phoneNumber'    => 'required|string',
             'HomeAddress'    => 'required|string',
             'gender'         => 'required|in:Male,Female',
-            'maritalStatus'  => 'required|in:Single,Married,Divorce',
+            'maritalStatus'  => 'required|in:Single,Married,Divorced',
             'picture'        => [
                 'required',
                 'file',
@@ -114,33 +160,66 @@ class UserController extends Controller
         $validated['rsa_private_key'] = $rsaKeys['encryptedPrivateKey'];
         $validated['rsa_public_key'] = $rsaKeys['publicKey'];
 
-        // ✅ Hash the password
-        $validated['password'] = bcrypt($validated['password']);
+        // ✅ Auto-generate initial password and store only the hash.
+        $generatedPassword = Str::password(12, true, true, false, false);
+        $validated['password'] = bcrypt($generatedPassword);
         
-        // ✅ Create the user
-        $user = User::create($validated);
-
-        // Upload user picture to Azure Storage and save path in MongoDB collection `user_picture`.
+        $user = null;
         $picture = $request->file('picture');
-        $extension = strtolower($picture->getClientOriginalExtension() ?: 'jpg');
-        $blobPath = "aslaw-picture/{$user->firmID}.{$extension}";
-        AzureStorage::put($blobPath, file_get_contents($picture->getRealPath()));
 
-        $photoUrl = AzureStorage::url($blobPath);
-        UserPicture::updateOrCreate(
-            ['firm_id' => $user->firmID],
-            [
+        try {
+            // ✅ Create the user
+            $user = User::create($validated);
+
+            // Upload user picture to Azure Storage and save path in MongoDB collection `user_picture`.
+            $extension = strtolower($picture->getClientOriginalExtension() ?: 'jpg');
+            $blobPath = "aslaw-picture/{$user->firmID}.{$extension}";
+            AzureStorage::put($blobPath, file_get_contents($picture->getRealPath()));
+
+            $photoUrl = AzureStorage::url($blobPath);
+            UserPicture::updateOrCreate(
+                ['firm_id' => $user->firmID],
+                [
+                    'user_id' => $user->id,
+                    'firm_id' => $user->firmID,
+                    'blob_path' => $blobPath,
+                    'photo_url' => $photoUrl,
+                    'mime_type' => $picture->getClientMimeType(),
+                    'size_bytes' => $picture->getSize(),
+                ]
+            );
+        } catch (\Throwable $e) {
+            if ($user) {
+                try {
+                    $user->delete();
+                } catch (\Throwable $cleanupException) {
+                    logger()->warning('Failed to rollback partially created user after storage error.', [
+                        'user_id' => $user->id,
+                        'message' => $cleanupException->getMessage(),
+                    ]);
+                }
+            }
+
+            logger()->error('User registration failed while uploading passport picture.', [
+                'email' => $request->input('email'),
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Unable to reach image storage service right now. Please try again shortly.',
+            ], 503);
+        }
+
+        // ✅ Send email to the user (with generated password)
+        try {
+            Mail::to($user->email)->send(new UserRegisteredMail($user, $generatedPassword));
+        } catch (\Throwable $e) {
+            logger()->warning('User registration email could not be sent.', [
                 'user_id' => $user->id,
-                'firm_id' => $user->firmID,
-                'blob_path' => $blobPath,
-                'photo_url' => $photoUrl,
-                'mime_type' => $picture->getClientMimeType(),
-                'size_bytes' => $picture->getSize(),
-            ]
-        );
-
-        // ✅ Send email to the user (with original password)
-        Mail::to($user->email)->send(new UserRegisteredMail($user, $request->password));
+                'email' => $user->email,
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'message' => 'User created successfully',
@@ -172,18 +251,33 @@ class UserController extends Controller
             ->get()
             ->map(function ($case) use ($client) {
                 $encryptedDocuments = $this->getCaseEncryptedDocuments((int) $case->caseId, (int) $client->id);
+                $freshProgress = $this->invoiceProgressService->recalculateForCase((int) $case->caseId);
 
                 return [
                     'id'          => $case->caseId,
                     'caseId'      => $case->caseId,
+                    'caseNumber'  => $case->caseNumber,
                     'caseName'    => $case->title,
                     'title'       => $case->title,
+                    'caseType'    => (string) ($case->caseType ?? 'Litigation'),
                     'description' => $case->description,
                     'status'      => $case->status,
+                    'progress'    => $freshProgress,
+                    'case_type_fee_json' => $case->case_type_fee_json ?? [
+                        'initial' => [],
+                        'first' => [],
+                        'second' => [],
+                        'third' => [],
+                        'final' => [],
+                    ],
+                    'expected_payment_phases' => $this->buildExpectedPaymentPhases($case),
+                    'invoice_payment_phases' => $this->buildInvoicePaymentPhases($case),
                     'clientName' => $case->client?->name,
                     'lawyerName'  => $case->lawyer?->name,
                     'lawyerFirmID'=> $case->lawyerFirmID,
                     'clientFirmID'=> $case->clientFirmID,
+                    'oppositionLawyerName' => $case->oppositionLawyerName,
+                    'oppositionLawyerFirmID' => $case->oppositionLawyerFirmID,
                     'created_at'  => $case->created_at,
                     'updated_at'  => $case->updated_at,
                     'blob_folder_path' => "cases/{$case->caseId}/",
@@ -238,20 +332,35 @@ class UserController extends Controller
                     ->first();
 
                 $encryptedDocuments = $this->getCaseEncryptedDocuments((int) $case->caseId, (int) $lawyer->id);
+                $freshProgress = $this->invoiceProgressService->recalculateForCase((int) $case->caseId);
 
                 return [
                     'id'         => $case->caseId,
                     'caseId'     => $case->caseId,
+                    'caseNumber' => $case->caseNumber,
                     'caseName'   => $case->title,
                     'title'      => $case->title,
+                    'caseType'   => (string) ($case->caseType ?? 'Litigation'),
                     'description'=> $case->description,
                     'status'     => $case->status,
+                    'progress'   => $freshProgress,
+                    'case_type_fee_json' => $case->case_type_fee_json ?? [
+                        'initial' => [],
+                        'first' => [],
+                        'second' => [],
+                        'third' => [],
+                        'final' => [],
+                    ],
+                    'expected_payment_phases' => $this->buildExpectedPaymentPhases($case),
+                    'invoice_payment_phases' => $this->buildInvoicePaymentPhases($case),
                     'clientName' => $case->client?->name,
                     'clientId' => $case->client?->id,
                     'lawyerId' => $case->lawyer?->id,
                     'lawyerName'  => $case->lawyer?->name,
                     'lawyerFirmID'=> $case->lawyerFirmID,
                     'clientFirmID'=> $case->clientFirmID,
+                    'oppositionLawyerName' => $case->oppositionLawyerName,
+                    'oppositionLawyerFirmID' => $case->oppositionLawyerFirmID,
                     'created_at' => $case->created_at,
                     'updated_at' => $case->updated_at,
                     'blob_folder_path'=> $metadata?->blob_folder_path ?? null,
@@ -362,11 +471,20 @@ class UserController extends Controller
 
         if ($request->exists('maritalStatus') || $request->exists('marital_status')) {
             $normalized['maritalStatus'] = $normalizeText($request->input('maritalStatus', $request->input('marital_status')));
+
+            if ($normalized['maritalStatus'] === 'Divorce') {
+                $normalized['maritalStatus'] = 'Divorced';
+            }
         }
 
         if (!empty($normalized)) {
             $request->merge($normalized);
         }
+
+        $shouldResetPassword = filter_var(
+            $request->input('reset_password', $request->input('resetPassword', false)),
+            FILTER_VALIDATE_BOOLEAN
+        );
 
         $validated = $request->validate([
             'name'           => 'sometimes|string|max:255',
@@ -380,19 +498,74 @@ class UserController extends Controller
             'maritalStatus'  => 'sometimes|nullable|in:Single,Married,Divorced',
             'status'         => 'sometimes|in:Active,Inactive,Archived',
             'password'       => 'sometimes|string|min:8',
+            'resetPassword'  => 'sometimes|boolean',
+            'reset_password' => 'sometimes|boolean',
         ]);
+
+        $generatedPassword = null;
+        if ($shouldResetPassword) {
+            // Keep reset generation behavior aligned with user registration.
+            $generatedPassword = Str::password(12, true, true, false, false);
+            $validated['password'] = $generatedPassword;
+        }
+
+        unset($validated['resetPassword'], $validated['reset_password']);
 
         if (array_key_exists('password', $validated)) {
             $validated['password'] = bcrypt($validated['password']);
         }
 
+        $attemptedEmailChange = array_key_exists('email', $validated)
+            && strtolower(trim((string) $validated['email'])) !== strtolower(trim((string) $user->email));
+        $attemptedUsernameChange = array_key_exists('username', $validated)
+            && trim((string) $validated['username']) !== trim((string) $user->username);
+
+        if ($attemptedEmailChange || $attemptedUsernameChange) {
+            return response()->json([
+                'message' => 'Email and username cannot be changed from manage profile.',
+            ], 422);
+        }
+
+        unset($validated['email'], $validated['username']);
+
+        // Check if status is being changed to archived
+        $wasArchivedJustNow = isset($validated['status']) && strtolower((string) $validated['status']) === 'archived' && strtolower((string) $user->status) !== 'archived';
+
         // Update allowed fields only
         $user->update($validated);
+
+        // Send deactivation email if account was just deactivated
+        if ($wasArchivedJustNow) {
+            try {
+                Mail::to($user->email)->send(new AccountDeactivatedMail($user->name));
+            } catch (\Throwable $e) {
+                // Log the error but don't fail the request
+                \Illuminate\Support\Facades\Log::warning('Account deactivation email failed', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($generatedPassword !== null) {
+            try {
+                Mail::to($user->email)->send(new UserRegisteredMail($user, $generatedPassword));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Reset password email failed', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         // New: return full updated user
         return response()->json([
             'message' => 'User updated successfully',
-            'user' => $user  // full object with all fields
+            'user' => $user,  // full object with all fields
+            'password_reset' => $generatedPassword !== null,
+            'password_emailed' => $generatedPassword !== null,
         ]);
     }
 
@@ -431,6 +604,7 @@ class UserController extends Controller
     {
         return FileMetadata::where('type', 'encrypted_document')
             ->where('case_id', $caseId)
+            ->where('status', '!=', 'deleted')
             ->get()
             ->filter(function ($document) use ($actorUserId) {
                 $recipients = $document->recipients ?? [];

@@ -22,18 +22,76 @@ class AuthController extends Controller
 {
     public function login(Request $request)
     {
+        $emailInput = $request->input('email');
+        $passwordInput = $request->input('password');
+
+        $normalizedEmail = is_string($emailInput) ? strtolower(trim($emailInput)) : '';
+        $password = is_string($passwordInput) ? $passwordInput : '';
+
+        $request->merge([
+            'email' => $normalizedEmail,
+        ]);
+
         $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
+            'email' => 'required|string|email:rfc|max:254',
+            'password' => 'required|string|max:255',
             'remember' => 'nullable|boolean',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        // ✅ Allow login for all active users; inactive/archived users are warned on frontend but can still obtain token
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (preg_match('/[\x00-\x1F\x7F]/', $normalizedEmail . $password)) {
             return response()->json([
                 'message' => 'Invalid email or password'
             ], 401);
+        }
+
+        $user = User::where('email', $normalizedEmail)->first();
+
+        if ($user && !is_null($user->account_locked_at)) {
+            return response()->json([
+                'message' => 'Account is locked after 3 failed attempts. Please reset your password.',
+                'code' => 'ACCOUNT_LOCKED',
+                'reset_required' => true,
+            ], 423);
+        }
+
+        if (!$user || !Hash::check($password, $user->password)) {
+            if ($user) {
+                $attempts = ((int) $user->failed_login_attempts) + 1;
+                $isNowLocked = $attempts >= 3;
+
+                $user->forceFill([
+                    'failed_login_attempts' => $isNowLocked ? 3 : $attempts,
+                    'account_locked_at' => $isNowLocked ? now() : null,
+                ])->save();
+
+                if ($isNowLocked) {
+                    return response()->json([
+                        'message' => 'Account is locked after 3 failed attempts. Please reset your password.',
+                        'code' => 'ACCOUNT_LOCKED',
+                        'reset_required' => true,
+                    ], 423);
+                }
+            }
+
+            return response()->json([
+                'message' => 'Invalid email or password'
+            ], 401);
+        }
+
+        if ((int) $user->failed_login_attempts > 0 || !is_null($user->account_locked_at)) {
+            $user->forceFill([
+                'failed_login_attempts' => 0,
+                'account_locked_at' => null,
+            ])->save();
+        }
+
+        // ❌ Block archived users from logging in
+        if (strtolower((string) $user->status) === 'archived') {
+            return response()->json([
+                'message' => 'Your account has been archived and cannot be used. Please contact an administrator.'
+            ], 403);
         }
 
         $remember = (bool) $request->boolean('remember');
@@ -133,6 +191,8 @@ class AuthController extends Controller
 
         $user = User::where('email', $request->email)->first();
         $user->password = bcrypt($request->password);
+        $user->failed_login_attempts = 0;
+        $user->account_locked_at = null;
         $user->save();
 
         return response()->json(['message' => 'Password reset successfully.']);
@@ -166,8 +226,12 @@ class AuthController extends Controller
             ]
         );
 
-        // Create a React frontend URL
-        $resetUrl = "http://localhost:3000/reset_password?token={$token}&email={$request->email}";
+        // Create a React frontend URL that matches the public reset page route.
+        $frontendUrl = rtrim(env('APP_FRONTEND_URL', 'http://localhost:3000'), '/');
+        $resetUrl = $frontendUrl . '/reset-password?' . http_build_query([
+            'token' => $token,
+            'email' => $request->email,
+        ]);
 
         Mail::to($request->email)->send(new ResetPasswordMail($resetUrl));
 
@@ -209,7 +273,9 @@ class AuthController extends Controller
         DB::table('users')
             ->where('email', $request->email)
             ->update([
-                'password' => Hash::make($request->password)
+                'password' => Hash::make($request->password),
+                'failed_login_attempts' => 0,
+                'account_locked_at' => null,
             ]);
 
         // 4️⃣ Delete used token

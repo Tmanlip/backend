@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -25,25 +24,25 @@ class UserRegisteredMail extends Mailable
         $this->password = $password; // Send plain password (optional, not recommended in prod)
     }
 
-        public function build()
-    {
-        return $this->subject('Your Account is Ready')
-                    ->view('emails.user_registered');
-    }
-
     /**
      * Get the message envelope.
      */
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'User Registered Mail',
+            subject: 'Your Account is Ready',
         );
     }
 
     /**
      * Get the message content definition.
      */
+    public function content(): Content
+    {
+        return new Content(
+            view: 'emails.user_registered',
+        );
+    }
 
     /**
      * Get the attachments for the message.

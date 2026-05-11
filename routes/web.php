@@ -3,15 +3,14 @@
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use App\Models\Student;
-use App\Http\Controllers\StorageController;
+// Removed references to missing classes to avoid bootstrap errors during local development.
+// If you need a storage test route, ensure the controller and model exist before re-enabling.
 
 Route::get('/', function () {
     return view('welcome');
 });
 
-//Route::get('/storage/upload-test', [StorageController::class, 'uploadTest']);
-//Route::get('/storage/read-test', [StorageController::class, 'readTest']);
+// Storage test routes disabled — re-enable after adding StorageController.
 
 use App\Models\Client;
 
