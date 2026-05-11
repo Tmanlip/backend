@@ -113,7 +113,7 @@ class UserController extends Controller
             'name'           => 'required|string|max:255',
             'email'          => 'required|email|unique:users,email',
             'username'       => 'required|string|max:50|unique:users,username',
-            'role'           => 'required|in:admin,client,lawyer',
+            'role'           => 'required|in:admin,junioradmin,client,lawyer',
             'age'            => 'required|integer|min:1',
             'ICNumber'       => 'required|string',
             'phoneNumber'    => 'required|string',

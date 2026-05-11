@@ -27,7 +27,7 @@ return new class extends Migration
             $table->text('rsa_private_key')->nullable();
             $table->enum('maritalStatus', ['Single', 'Married', 'Divorced'])->default('Single');
             $table->enum('gender', ['Male','Female'])->default('Male');
-            $table->enum('role', ['admin', 'client', 'lawyer'])->default('client');
+            $table->enum('role', ['admin', 'junioradmin', 'client', 'lawyer'])->default('client');
             $table->enum('status', ['Active', 'Inactive', 'Archived'])->default('Active');
             $table->rememberToken();
             $table->timestamps();

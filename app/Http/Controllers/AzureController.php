@@ -122,6 +122,11 @@ class AzureController extends Controller {
     
     /* |-------------------------------------------------------------------------- | 1️⃣ Upload File Into Folder |-------------------------------------------------------------------------- */ 
     public function upload(Request $request) { 
+        $actorRole = strtolower((string) ($request->user()?->role ?? $request->header('X-User-Role', '')));
+        if ($actorRole === 'junioradmin') {
+            return response()->json(['error' => 'Junior admin cannot upload documents'], 403);
+        }
+
         $request->validate([
             'file' => 'required|file|max:10240',
             'folder' => 'required|string',

@@ -61,6 +61,10 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
+        if (strtolower((string) $actor->role) === 'junioradmin') {
+            return response()->json(['message' => 'Junior admin cannot upload documents'], 403);
+        }
+
         $case = LawCase::find($validated['case_id']);
         if (!$case) {
             return response()->json(['message' => 'Case not found'], 404);

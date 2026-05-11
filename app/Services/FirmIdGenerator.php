@@ -9,9 +9,10 @@ class FirmIdGenerator
     public static function generate(string $role): string
     {
         $prefixMap = [
-            'admin'  => 'D',
-            'lawyer' => 'Y',
-            'client' => 'E',
+            'admin'       => 'D',
+            'junioradmin' => 'J',
+            'lawyer'      => 'Y',
+            'client'      => 'E',
         ];
 
         $prefix = $prefixMap[$role] ?? 'E';
