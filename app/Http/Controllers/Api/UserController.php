@@ -163,6 +163,8 @@ class UserController extends Controller
         // ✅ Auto-generate initial password and store only the hash.
         $generatedPassword = Str::password(12, true, true, false, false);
         $validated['password'] = bcrypt($generatedPassword);
+        $validated['must_change_password'] = true;
+        $validated['temporary_password_generated_at'] = now();
         
         $user = null;
         $picture = $request->file('picture');
@@ -507,12 +509,24 @@ class UserController extends Controller
             // Keep reset generation behavior aligned with user registration.
             $generatedPassword = Str::password(12, true, true, false, false);
             $validated['password'] = $generatedPassword;
+            $validated['must_change_password'] = true;
+            $validated['temporary_password_generated_at'] = now();
+            $validated['failed_login_attempts'] = 0;
+            $validated['account_locked_at'] = null;
         }
 
         unset($validated['resetPassword'], $validated['reset_password']);
 
         if (array_key_exists('password', $validated)) {
             $validated['password'] = bcrypt($validated['password']);
+
+            if (!$shouldResetPassword) {
+                // Password changed by the user from profile reset flow.
+                $validated['must_change_password'] = false;
+                $validated['temporary_password_generated_at'] = null;
+                $validated['failed_login_attempts'] = 0;
+                $validated['account_locked_at'] = null;
+            }
         }
 
         $attemptedEmailChange = array_key_exists('email', $validated)

@@ -34,6 +34,8 @@
             'firmID',
             'failed_login_attempts',
             'account_locked_at',
+            'must_change_password',
+            'temporary_password_generated_at',
         ];
 
         protected $hidden = [
@@ -49,6 +51,8 @@
                 'email_verified_at' => 'datetime',
                 'password' => 'hashed',
                 'account_locked_at' => 'datetime',
+                'must_change_password' => 'boolean',
+                'temporary_password_generated_at' => 'datetime',
             ];
         }
 

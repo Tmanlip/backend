@@ -1,18 +1,32 @@
-<h2>Welcome, {{ $user->name }}!</h2>
+@extends('emails.layout')
 
-<p>Your account has been created successfully. You can login using the following credentials:</p>
+@php($frontendUrl = rtrim(env('APP_FRONTEND_URL', config('app.url')), '/'))
 
-<ul>
-    <li>Username: {{ $user->username }}</li>
-    <li>Password: {{ $password }}</li>
-</ul>
+@section('title', 'Your ASLAW Account Is Ready')
+@section('preheader', 'Your ASLAW account has been created and is ready for first login.')
+@section('heading', 'Welcome to ASLAW, ' . $user->name)
 
-<p>Click the button below to login:</p>
+@section('content')
+    <p style="margin:0 0 16px 0;">Your account has been created successfully. Use the credentials below to access the platform.</p>
 
-<a href="{{ env('APP_FRONTEND_URL') }}" 
-   style="display:inline-block;padding:10px 20px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">
-   Login Now
-</a>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 24px 0;border:1px solid #e2e8f0;border-radius:14px;background-color:#f8fafc;">
+        <tr>
+            <td style="padding:18px 20px;">
+                <div style="margin:0 0 12px 0;"><strong>Username:</strong> {{ $user->username }}</div>
+                <div><strong>Temporary Password:</strong> {{ $password }}</div>
+            </td>
+        </tr>
+    </table>
 
-<p>Or copy and paste this URL in your browser:</p>
-<p>{{ env('APP_FRONTEND_URL') }}/login</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+        <tr>
+            <td>
+                <a href="{{ $frontendUrl }}/login" style="display:inline-block;padding:14px 24px;border-radius:10px;background-color:#0f172a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">Log In to ASLAW</a>
+            </td>
+        </tr>
+    </table>
+
+    <p style="margin:0 0 12px 0;">Your temporary password is valid for <strong>10 minutes</strong> from the time this email was sent. At first login, you will be guided to your profile to reset it immediately.</p>
+    <p style="margin:0 0 12px 0;">If the 10 minutes has passed before you log in, please contact the admin to issue a new password.</p>
+    <p style="margin:0;">If the button does not work, open this link in your browser: <span style="color:#1d4ed8;word-break:break-all;">{{ $frontendUrl }}/login</span></p>
+@endsection

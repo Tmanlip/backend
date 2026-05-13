@@ -94,6 +94,24 @@ class AuthController extends Controller
             ], 403);
         }
 
+        $mustChangePassword = (bool) $user->must_change_password;
+        $mustChangePasswordExpiresAt = null;
+
+        if ($mustChangePassword) {
+            $generatedAt = $user->temporary_password_generated_at
+                ? Carbon::parse($user->temporary_password_generated_at)
+                : null;
+
+            if (!$generatedAt || $generatedAt->copy()->addMinutes(10)->isPast()) {
+                return response()->json([
+                    'message' => 'Your temporary password has expired. Please contact the admin to issue a new password.',
+                    'code' => 'TEMP_PASSWORD_EXPIRED',
+                ], 403);
+            }
+
+            $mustChangePasswordExpiresAt = $generatedAt->copy()->addMinutes(10);
+        }
+
         $remember = (bool) $request->boolean('remember');
         $expirationMinutes = $remember
             ? (int) config('sanctum.remember_me_expiration', 43200)
@@ -113,6 +131,8 @@ class AuthController extends Controller
             'token'   => $token,
             'remember' => $remember,
             'expires_at' => $expiresAt->toIso8601String(),
+            'must_change_password' => $mustChangePassword,
+            'must_change_password_expires_at' => $mustChangePasswordExpiresAt?->toIso8601String(),
             'user'    => $userPayload,
         ]);
     }
@@ -193,6 +213,8 @@ class AuthController extends Controller
         $user->password = bcrypt($request->password);
         $user->failed_login_attempts = 0;
         $user->account_locked_at = null;
+        $user->must_change_password = false;
+        $user->temporary_password_generated_at = null;
         $user->save();
 
         return response()->json(['message' => 'Password reset successfully.']);
@@ -276,6 +298,8 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'failed_login_attempts' => 0,
                 'account_locked_at' => null,
+                'must_change_password' => false,
+                'temporary_password_generated_at' => null,
             ]);
 
         // 4️⃣ Delete used token

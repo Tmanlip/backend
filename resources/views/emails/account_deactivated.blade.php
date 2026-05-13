@@ -1,21 +1,13 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Account Deactivated</title>
-</head>
-<body>
-    <p>Dear {{ $userName }},</p>
-    
-    <p>We are writing to inform you that your ASLAW account has been deactivated by an administrator.</p>
-    
-    <p>You will still be able to log in and log out, but you will not have access to any other features or data in the system.</p>
-    
-    <p>If you believe this is a mistake or have any questions, please contact your administrator.</p>
-    
-    <p>Thank you.</p>
-    
-    <p>Best regards,<br/>
-    ASLAW Team</p>
-</body>
-</html>
+@extends('emails.layout')
+
+@section('title', 'Account Deactivated')
+@section('preheader', 'Your ASLAW account status has been changed by an administrator.')
+@section('heading', 'Account Status Update')
+
+@section('content')
+    <p style="margin:0 0 16px 0;">Dear {{ $userName }},</p>
+    <p style="margin:0 0 16px 0;">This email is to inform you that your ASLAW account has been deactivated by an administrator.</p>
+    <p style="margin:0 0 16px 0;">You may still be able to access the sign-in and sign-out flow, but access to system features and stored data has been restricted.</p>
+    <p style="margin:0 0 16px 0;">If you believe this action was taken in error or you need clarification, please contact your administrator.</p>
+    <p style="margin:0;">Regards,<br>ASLAW Team</p>
+@endsection

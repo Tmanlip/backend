@@ -105,6 +105,7 @@ class DocumentGeneratorController extends Controller
     public function generateInvoiceDocx(Request $request)
     {
         $validated = $request->validate([
+            'language' => ['nullable', 'string', 'in:english,bi,malay'],
             'formData' => ['required', 'array'],
             'formData.invoice_id' => ['nullable', 'integer'],
             'formData.invoice_number' => ['nullable', 'string'],
@@ -226,6 +227,7 @@ class DocumentGeneratorController extends Controller
             $invoiceData['invoice_id'] = $invoiceData['id'] ?? null;
 
             $payload = array_merge($formData, $invoiceData);
+            $payload['language'] = (string) ($validated['language'] ?? 'english');
             $file = $this->service->generateInvoiceDocx($payload);
 
             $headerKeys = [
@@ -271,6 +273,7 @@ class DocumentGeneratorController extends Controller
     public function generateInvoicePdf(Request $request)
     {
         $validated = $request->validate([
+            'language' => ['nullable', 'string', 'in:english,bi,malay'],
             'formData' => ['required', 'array'],
             'formData.invoice_id' => ['nullable', 'integer'],
             'formData.invoice_number' => ['nullable', 'string'],
@@ -375,6 +378,9 @@ class DocumentGeneratorController extends Controller
 
             $invoiceData['invoice_id'] = $invoiceData['id'] ?? null;
             $payload = array_merge($formData, $invoiceData);
+            $payload['language'] = (string) ($validated['language'] ?? 'english');
+            
+            // Generate PDF using HTML template with Dompdf (active approach - NOT DOCX)
             $file = $this->service->generateInvoicePdf($payload);
 
             $headerKeys = [
@@ -382,9 +388,12 @@ class DocumentGeneratorController extends Controller
                 'X-Invoice-Paid-Amount', 'X-Invoice-Balance', 'X-Case-Progress',
             ];
 
+            // Ensure response is pure PDF (no DOCX)
             return response($file['buffer'], Response::HTTP_OK, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $file['filename'] . '"',
+                'Content-Disposition' => 'inline; filename="' . $file['filename'] . '"',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma' => 'no-cache',
                 'X-Invoice-Id' => (string) $invoice->id,
                 'X-Invoice-Number' => (string) $invoice->invoice_number,
                 'X-Invoice-Expected-Amount' => (string) $invoice->expected_amount,

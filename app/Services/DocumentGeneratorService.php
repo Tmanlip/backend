@@ -120,18 +120,39 @@ class DocumentGeneratorService
 
         $safeNum = preg_replace('/[^A-Za-z0-9\-_]/', '_', (string) ($variables['invoice_number'] ?? 'invoice'));
 
+        // Active approach: build invoice DOCX from the HTML template defined in buildInvoiceHtmlFromVariables().
+        // This dynamically generates professional invoice documents with styling and formatting.
         return $this->createDocxFromHtml($html, $safeNum . '.docx');
+
+        /*
+         * Alternative approach (legacy, commented):
+         * Use a static DOCX template file from storage/app/document-generator/templates/invoice.
+         * This would load an existing template and populate placeholders {{key}}.
+         *
+         * return $this->generateDocxFromTemplate(
+         *     'invoice',
+         *     [
+         *         'Invoice_Template.docx',
+         *         'invoice_template.docx',
+         *     ],
+         *     $variables,
+         *     $safeNum . '.docx'
+         * );
+         */
     }
 
     public function generateInvoicePdf(array $formData = []): array
     {
         $v = $this->buildInvoiceVariables($formData);
-        $docx = $this->generateInvoiceDocx($formData);
-        $html = $this->renderDocxBufferAsHtml($docx['buffer']);
 
-        if (!is_string($html) || trim($html) === '') {
-                        $html = $this->buildInvoiceHtmlFromVariables($v);
-    }
+        // PRIMARY APPROACH: Render PDF directly from HTML template using Dompdf.
+        // This is the active, production method for invoice PDF generation.
+        // - Generates styled, professional PDF invoices with consistent formatting
+        // - Uses dynamic HTML template with embedded CSS
+        // - No static template files required
+        // - No LibreOffice dependency (unlike LOD PDF generation)
+        // - Fast, reliable, and portable across platforms
+        $html = $this->buildInvoiceHtmlFromVariables($v);
 
         $dompdf = new \Dompdf\Dompdf(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => false]);
         $dompdf->loadHtml($html, 'UTF-8');
@@ -149,27 +170,74 @@ class DocumentGeneratorService
             'buffer' => $pdfBuffer,
             'filename' => $safeNum . '.pdf',
         ];
+
+        /*
+         * LEGACY APPROACH (NOT USED):
+         * Generate DOCX from template, then convert to PDF via LibreOffice.
+         * This is commented out because:
+         * - Requires LibreOffice installation on server
+         * - Slower than Dompdf
+         * - Additional system dependency
+         *
+         * $docx = $this->generateInvoiceDocx($formData);
+         * $html = $this->renderDocxBufferAsHtml($docx['buffer']);
+         *
+         * if (!is_string($html) || trim($html) === '') {
+         *     $html = $this->buildInvoiceHtmlFromVariables($v);
+         * }
+         */
     }
 
         private function buildInvoiceHtmlFromVariables(array $v): string
         {
-                $fmt = fn($n) => is_numeric($n) && (string)$n !== '' ? 'RM ' . number_format((float)$n, 2) : '-';
-                $esc = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $fmt = fn($n) => is_numeric($n) && (string)$n !== '' ? 'RM ' . number_format((float)$n, 2) : '-';
+            $esc = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $choose = function (string $englishText, string $malayText) use ($v): string {
+                return $this->resolveInvoiceLanguage($v) === 'malay' ? $malayText : $englishText;
+            };
 
-                $stage = ucfirst((string)($v['payment_stage'] ?? 'initial'));
-                $invoiceNum = $esc($v['invoice_number'] ?? '');
-                $clientName = $esc($v['client_name'] ?? '');
-                $caseTitle  = $esc($v['case_title'] ?? '');
-                $typeOfWork = $esc($v['type_of_work'] ?? '');
-                $issueDate  = $esc($v['issue_date'] ?? '');
-                $dueDate    = $esc($v['due_date'] ?? '');
-                $expected   = $fmt($v['expected_amount'] ?? '');
-                $paid       = $fmt($v['paid_amount'] ?? '');
-                $tax        = is_numeric($v['tax'] ?? '') && (string)($v['tax'] ?? '') !== '' ? $esc($v['tax']) . '%' : '-';
-                $discount   = is_numeric($v['discount'] ?? '') && (string)($v['discount'] ?? '') !== '' ? $esc($v['discount']) . '%' : '-';
-                $total      = $fmt($v['total_amount'] ?? '');
-                $typeOfWorkBalance = $fmt($v['balance'] ?? '');
-                $phaseBalance = $fmt($v['phase_balance'] ?? '');
+            $stageValue = strtolower(trim((string) ($v['payment_stage'] ?? 'initial')));
+            $stage = match ($stageValue) {
+                'initial' => $choose('Initial', 'Permulaan'),
+                'first' => $choose('First', 'Pertama'),
+                'second' => $choose('Second', 'Kedua'),
+                'third' => $choose('Third', 'Ketiga'),
+                'final' => $choose('Final', 'Akhir'),
+                default => ucfirst($stageValue !== '' ? $stageValue : 'initial'),
+            };
+            $invoiceNum = $esc($v['invoice_number'] ?? '');
+            $clientName = $esc($v['client_name'] ?? '');
+            $caseTitle  = $esc($v['case_title'] ?? '');
+            $typeOfWork = $esc($v['type_of_work'] ?? '');
+            $issueDate  = $esc($v['issue_date'] ?? '');
+            $dueDateRaw = trim((string) ($v['due_date'] ?? ''));
+            $dueDateLabel = $choose('Due', 'Tarikh Akhir');
+            $dueDate = $esc($dueDateRaw !== '' ? $dueDateLabel . ': ' . $dueDateRaw : '-');
+            $expected   = $fmt($v['expected_amount'] ?? '');
+            $paid       = $fmt($v['paid_amount'] ?? '');
+            $tax        = is_numeric($v['tax'] ?? '') && (string)($v['tax'] ?? '') !== '' ? $esc($v['tax']) . '%' : '-';
+            $discount   = is_numeric($v['discount'] ?? '') && (string)($v['discount'] ?? '') !== '' ? $esc($v['discount']) . '%' : '-';
+            $total      = $fmt($v['total_amount'] ?? '');
+            $typeOfWorkBalance = $fmt($v['balance'] ?? '');
+            $phaseBalance = $fmt($v['phase_balance'] ?? '');
+            $invoiceTitle = $choose('INVOICE', 'INVOIS');
+            $paymentLabel = $choose('Payment', 'Bayaran');
+            $issuedLabel = $choose('Issued', 'Dikeluarkan');
+            $billedToLabel = $choose('Billed To', 'Dibil Kepada');
+            $matterLabel = $choose('Matter', 'Perkara');
+            $typeOfWorkLabel = $choose('Type of Work', 'Jenis Kerja');
+            $expectedAmountLabel = $choose('Expected Amount', 'Jumlah Dijangka');
+            $paidAmountLabel = $choose('Amount Paid', 'Jumlah Dibayar');
+            $typeOfWorkBalanceLabel = $choose('Type of Work Balance', 'Baki Jenis Kerja');
+            $phaseBalanceLabel = $choose('Phase Balance', 'Baki Fasa');
+            $taxLabel = $choose('Tax', 'Cukai');
+            $discountLabel = $choose('Discount', 'Diskaun');
+            $totalLabel = $choose('Total', 'Jumlah Keseluruhan');
+            $amountDueLabel = $choose('Amount Due', 'Jumlah Perlu Dibayar');
+            $footer = $choose(
+                'This is a computer-generated invoice. No signature is required.',
+                'Ini ialah invois yang dijana oleh komputer. Tandatangan tidak diperlukan.'
+            );
 
                 return <<<HTML
 <!DOCTYPE html>
@@ -200,47 +268,54 @@ class DocumentGeneratorService
 <body>
     <div class="header">
         <div>
-            <h1>INVOICE</h1>
-            <div style="font-size:10px;margin-top:4px;opacity:0.75;">{$stage} Payment</div>
+            <h1>{$invoiceTitle}</h1>
+            <div style="font-size:10px;margin-top:4px;opacity:0.75;">{$stage} {$paymentLabel}</div>
         </div>
         <div class="inv-meta">
             <strong>#{$invoiceNum}</strong><br>
-            Issued: {$issueDate}<br>
+            {$issuedLabel}: {$issueDate}<br>
             {$dueDate}
         </div>
     </div>
     <div class="body-wrap">
         <div class="parties">
             <div class="party-block">
-                <h3>Billed To</h3>
+                <h3>{$billedToLabel}</h3>
                 <p>{$clientName}</p>
             </div>
             <div class="party-block" style="text-align:right;">
-                <h3>Matter</h3>
+                <h3>{$matterLabel}</h3>
                 <p class="sub">{$caseTitle}</p>
             </div>
         </div>
         <div class="party-block" style="margin-bottom:16px;">
-            <h3>Type of Work</h3>
+            <h3>{$typeOfWorkLabel}</h3>
             <p class="sub">{$typeOfWork}</p>
         </div>
         <hr class="divider">
         <table class="amounts">
-            <tr><td>Expected Amount</td><td>{$expected}</td></tr>
-            <tr><td>Amount Paid</td><td>{$paid}</td></tr>
-            <tr><td>Type of Work Balance</td><td>{$typeOfWorkBalance}</td></tr>
-            <tr><td>Phase Balance</td><td>{$phaseBalance}</td></tr>
-            <tr><td>Tax</td><td>{$tax}</td></tr>
-            <tr><td>Discount</td><td>{$discount}</td></tr>
-            <tr><td>Total</td><td>{$total}</td></tr>
-            <tr class="total-row"><td>Amount Due</td><td>{$typeOfWorkBalance}</td></tr>
+            <tr><td>{$expectedAmountLabel}</td><td>{$expected}</td></tr>
+            <tr><td>{$paidAmountLabel}</td><td>{$paid}</td></tr>
+            <tr><td>{$typeOfWorkBalanceLabel}</td><td>{$typeOfWorkBalance}</td></tr>
+            <tr><td>{$phaseBalanceLabel}</td><td>{$phaseBalance}</td></tr>
+            <tr><td>{$taxLabel}</td><td>{$tax}</td></tr>
+            <tr><td>{$discountLabel}</td><td>{$discount}</td></tr>
+            <tr><td>{$totalLabel}</td><td>{$total}</td></tr>
+            <tr class="total-row"><td>{$amountDueLabel}</td><td>{$typeOfWorkBalance}</td></tr>
         </table>
-        <div class="footer">This is a computer-generated invoice. No signature is required.</div>
+        <div class="footer">{$footer}</div>
     </div>
 </body>
 </html>
 HTML;
         }
+
+    private function resolveInvoiceLanguage(array $variables): string
+    {
+        $language = strtolower(trim((string) ($variables['language'] ?? 'english')));
+
+        return $language === 'malay' ? 'malay' : 'english';
+    }
 
         private function createDocxFromHtml(string $html, string $downloadName): array
         {
@@ -933,6 +1008,7 @@ XML;
             'blob_path' => '',
             'created_at' => '',
             'updated_at' => '',
+            'language' => 'english',
         ];
 
         $aliases = [
@@ -958,6 +1034,7 @@ XML;
             'blob_path' => ['blob_path', 'blobPath', 'pdf_path', 'pdfPath'],
             'created_at' => ['created_at', 'createdAt'],
             'updated_at' => ['updated_at', 'updatedAt'],
+            'language' => ['language'],
         ];
 
         $variables = [];
