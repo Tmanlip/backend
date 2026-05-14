@@ -34,7 +34,7 @@ jobs:
         run: composer validate --no-check-publish && composer install --prefer-dist --no-progress
 
       - name: Clear Config Cache
-        run: php artisan config:clear
+        run: php artisan config:clear && php artisan cache:clear && php artisan optimize:clear
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4

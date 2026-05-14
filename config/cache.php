@@ -15,7 +15,20 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    'default' => env('CACHE_STORE', 'file'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cache Limiter Store
+    |--------------------------------------------------------------------------
+    |
+    | This value determines which cache store is used by the rate limiter.
+    | Using a non-database store keeps auth throttling available even when
+    | the primary SQL database is temporarily unreachable.
+    |
+    */
+
+    'limiter' => env('CACHE_LIMITER', 'array'),
 
     /*
     |--------------------------------------------------------------------------
