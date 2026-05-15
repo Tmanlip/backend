@@ -21,7 +21,10 @@ class AzureStorage
             );
         }
 
-        return BlobRestProxy::createBlobService($connectionString);
+        return BlobRestProxy::createBlobService($connectionString, [
+            'timeout' => (int) env('AZURE_STORAGE_TIMEOUT', 10),
+            'connect_timeout' => (int) env('AZURE_STORAGE_CONNECT_TIMEOUT', 5),
+        ]);
     }
 
     protected static function container(): string

@@ -175,9 +175,12 @@ class DocumentGeneratorController extends Controller
 
         $invoice = null;
         $caseProgress = null;
+        $createdInvoice = false;
 
         try {
             $existingInvoiceId = isset($formData['invoice_id']) ? (int) $formData['invoice_id'] : 0;
+            $shouldPersistInvoice = $existingInvoiceId > 0;
+
             if ($existingInvoiceId > 0) {
                 $existingInvoice = Invoice::find($existingInvoiceId);
                 if ($existingInvoice) {
@@ -342,9 +345,11 @@ class DocumentGeneratorController extends Controller
 
         $invoice = null;
         $caseProgress = null;
+        $createdInvoice = false;
 
         try {
             $existingInvoiceId = isset($formData['invoice_id']) ? (int) $formData['invoice_id'] : 0;
+            $shouldPersistInvoice = $existingInvoiceId > 0;
             if ($existingInvoiceId > 0) {
                 $existingInvoice = Invoice::find($existingInvoiceId);
                 if ($existingInvoice) {
@@ -364,17 +369,46 @@ class DocumentGeneratorController extends Controller
                     $invoice = $existingInvoice->fresh();
                 }
             }
-            if (!$invoice) {
-                $invoice = Invoice::create($invoicePersistenceData);
-            }
-            $caseProgress = $this->invoiceProgressService->syncCaseProgress($case);
 
-            $invoiceData = $invoice->fresh()->only([
-                'id', 'lawyerID', 'case_id', 'clientID', 'invoice_number',
-                'payment_stage', 'issue_date', 'due_date', 'expected_amount',
-                'paid_amount', 'balance', 'tax', 'discount', 'total_amount',
-                'client_name', 'case_title', 'blob_path', 'created_at', 'updated_at',
-            ]);
+            if (!$invoice && $shouldPersistInvoice) {
+                $invoice = Invoice::create($invoicePersistenceData);
+                $createdInvoice = true;
+            }
+
+            if ($invoice) {
+                $caseProgress = $this->invoiceProgressService->syncCaseProgress($case);
+            }
+
+            if ($invoice) {
+                $invoiceData = $invoice->fresh()->only([
+                    'id', 'lawyerID', 'case_id', 'clientID', 'invoice_number',
+                    'payment_stage', 'issue_date', 'due_date', 'expected_amount',
+                    'paid_amount', 'balance', 'tax', 'discount', 'total_amount',
+                    'client_name', 'case_title', 'blob_path', 'created_at', 'updated_at',
+                ]);
+            } else {
+                $invoiceData = [
+                    'id' => null,
+                    'lawyerID' => $formData['lawyerID'] ?? null,
+                    'case_id' => $formData['case_id'] ?? null,
+                    'clientID' => $formData['clientID'] ?? null,
+                    'invoice_number' => (string) ($formData['invoice_number'] ?? Invoice::generateInvoiceNumber((int) ($formData['case_id'] ?? 0))),
+                    'payment_stage' => $formData['payment_stage'] ?? null,
+                    'issue_date' => $formData['issue_date'] ?? null,
+                    'due_date' => $formData['due_date'] ?? null,
+                    'expected_amount' => $formData['expected_amount'] ?? null,
+                    'paid_amount' => $formData['paid_amount'] ?? null,
+                    'balance' => $formData['balance'] ?? null,
+                    'tax' => $formData['tax'] ?? null,
+                    'discount' => $formData['discount'] ?? null,
+                    'total_amount' => $formData['total_amount'] ?? null,
+                    'client_name' => $formData['client_name'] ?? null,
+                    'case_title' => $formData['case_title'] ?? null,
+                    'blob_path' => $formData['blob_path'] ?? null,
+                    'created_at' => null,
+                    'updated_at' => null,
+                ];
+            }
 
             $invoiceData['invoice_id'] = $invoiceData['id'] ?? null;
             $payload = array_merge($formData, $invoiceData);
@@ -394,11 +428,11 @@ class DocumentGeneratorController extends Controller
                 'Content-Disposition' => 'inline; filename="' . $file['filename'] . '"',
                 'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
                 'Pragma' => 'no-cache',
-                'X-Invoice-Id' => (string) $invoice->id,
-                'X-Invoice-Number' => (string) $invoice->invoice_number,
-                'X-Invoice-Expected-Amount' => (string) $invoice->expected_amount,
-                'X-Invoice-Paid-Amount' => (string) $invoice->paid_amount,
-                'X-Invoice-Balance' => (string) $invoice->balance,
+                'X-Invoice-Id' => (string) ($invoice->id ?? ''),
+                'X-Invoice-Number' => (string) ($invoiceData['invoice_number'] ?? ''),
+                'X-Invoice-Expected-Amount' => (string) ($invoiceData['expected_amount'] ?? ''),
+                'X-Invoice-Paid-Amount' => (string) ($invoiceData['paid_amount'] ?? ''),
+                'X-Invoice-Balance' => (string) ($invoiceData['balance'] ?? ''),
                 'X-Case-Progress' => (string) ($caseProgress ?? ''),
                 'Access-Control-Expose-Headers' => implode(', ', $headerKeys),
             ]);
@@ -411,7 +445,7 @@ class DocumentGeneratorController extends Controller
             }
             return response()->json(['error' => 'Failed to generate Invoice PDF: ' . $error->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
         } catch (\Throwable $error) {
-            if ($invoice) {
+            if ($invoice && $createdInvoice) {
                 try {
                     $invoice->delete();
                 } catch (\Throwable $deleteError) {

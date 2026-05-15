@@ -1,5 +1,10 @@
 <?php
 
+$appEnvironment = strtolower((string) env('APP_ENV', 'production'));
+$allowInsecureMailTls = filter_var(env('MAIL_ALLOW_INSECURE_TLS', false), FILTER_VALIDATE_BOOL)
+    && filter_var(env('APP_DEBUG', false), FILTER_VALIDATE_BOOL)
+    && in_array($appEnvironment, ['local', 'development'], true);
+
 return [
 
     /*
@@ -39,13 +44,27 @@ return [
 
         'smtp' => [
             'transport' => 'smtp',
+            'url' => $allowInsecureMailTls ? env('MAIL_URL') : null,
             'host' => env('MAIL_HOST', '127.0.0.1'),
             'port' => env('MAIL_PORT', 587),
             'encryption' => env('MAIL_ENCRYPTION', 'tls'), // or ssl if using 465
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            'timeout' => (int) env('MAIL_TIMEOUT', 10),
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+            'stream' => [
+                'ssl' => [
+                    'verify_peer' => $allowInsecureMailTls
+                        ? false
+                        : filter_var(env('MAIL_VERIFY_PEER', true), FILTER_VALIDATE_BOOL),
+                    'verify_peer_name' => $allowInsecureMailTls
+                        ? false
+                        : filter_var(env('MAIL_VERIFY_PEER_NAME', true), FILTER_VALIDATE_BOOL),
+                    'allow_self_signed' => $allowInsecureMailTls
+                        ? true
+                        : filter_var(env('MAIL_ALLOW_SELF_SIGNED', false), FILTER_VALIDATE_BOOL),
+                ],
+            ],
         ],
 
         'ses' => [

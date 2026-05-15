@@ -213,9 +213,23 @@ class UserController extends Controller
         }
 
         // ✅ Send email to the user (with generated password)
+        $emailSent = true;
+        $emailWarning = null;
+        $emailErrorCode = null;
+        $fallbackPassword = null;
+
         try {
             Mail::to($user->email)->send(new UserRegisteredMail($user, $generatedPassword));
         } catch (\Throwable $e) {
+            $emailSent = false;
+            $emailErrorCode = $this->classifyMailFailure($e);
+            $emailWarning = $this->buildMailFailureMessage($e, $emailErrorCode);
+
+            if (config('app.debug')) {
+                // Local/dev fallback to avoid locking out newly created users when SMTP is unavailable.
+                $fallbackPassword = $generatedPassword;
+            }
+
             logger()->warning('User registration email could not be sent.', [
                 'user_id' => $user->id,
                 'email' => $user->email,
@@ -224,13 +238,19 @@ class UserController extends Controller
         }
 
         return response()->json([
-            'message' => 'User created successfully',
+            'message' => $emailSent
+                ? 'User created successfully'
+                : 'User created, but email delivery failed',
+            'email_sent' => $emailSent,
+            'email_warning' => $emailWarning,
+            'email_error_code' => $emailErrorCode,
             'user' => [
                 ...$user->toArray(),
                 'photo' => 'data:' . ($picture->getClientMimeType() ?: 'image/jpeg') . ';base64,' . base64_encode(file_get_contents($picture->getRealPath())),
                 'photo_url' => $photoUrl,
                 'photo_blob_path' => $blobPath,
             ],
+            'generated_password' => $fallbackPassword,
         ], 201);
     }
 
@@ -643,12 +663,50 @@ class UserController extends Controller
                     'category' => (string) ($document->category ?? 'documents'),
                     'status' => (string) ($document->status ?? 'active'),
                     'created_at' => $document->created_at,
+                    'invoice_stage' => (string) ($document->invoice_stage ?? ''),
+                    'type_of_work' => (string) ($document->type_of_work ?? ''),
+                    'paid_amount' => (float) ($document->paid_amount ?? 0),
                     'preview_url' => "/api/encrypted-documents/{$documentId}/preview",
                     'download_url' => "/api/encrypted-documents/{$documentId}/download",
                     'delete_url' => "/api/encrypted-documents/{$documentId}",
                 ];
             })
             ->all();
+    }
+
+    private function classifyMailFailure(\Throwable $e): string
+    {
+        $message = strtolower($e->getMessage());
+
+        if (str_contains($message, 'failed to authenticate on smtp server') || str_contains($message, 'code "535"')) {
+            return 'smtp_auth_failed';
+        }
+
+        if (str_contains($message, 'connection could not be established') || str_contains($message, 'stream_socket_client')) {
+            return 'smtp_connection_failed';
+        }
+
+        if (str_contains($message, 'timed out') || str_contains($message, 'maximum execution time')) {
+            return 'smtp_timeout';
+        }
+
+        return 'mail_send_failed';
+    }
+
+    private function buildMailFailureMessage(\Throwable $e, string $errorCode): string
+    {
+        $base = match ($errorCode) {
+            'smtp_auth_failed' => 'User was created, but email was not sent because SMTP login was rejected. Check MAIL_USERNAME and MAIL_PASSWORD.',
+            'smtp_connection_failed' => 'User was created, but email was not sent because the SMTP server could not be reached. Check MAIL_HOST, MAIL_PORT, and network/firewall rules.',
+            'smtp_timeout' => 'User was created, but email sending timed out. Check SMTP service responsiveness and timeout settings.',
+            default => 'User was created, but email delivery failed due to a mail transport error.',
+        };
+
+        if (config('app.debug')) {
+            return $base.' Details: '.$e->getMessage();
+        }
+
+        return $base;
     }
 
     private function findUserPicture(int $userId, string $firmId): ?UserPicture

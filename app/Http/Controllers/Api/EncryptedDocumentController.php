@@ -40,6 +40,7 @@ class EncryptedDocumentController extends Controller
             'recipient_user_ids.*' => 'integer',
             'invoice_stage' => 'nullable|in:initial,first,second,third,final',
             'payment_stage' => 'nullable|string',
+            'type_of_work' => 'nullable|string|max:255',
             'invoice_number' => 'nullable|string|max:255',
             'issue_date' => 'nullable|date',
             'due_date' => 'nullable|date',
@@ -188,6 +189,7 @@ class EncryptedDocumentController extends Controller
             'status' => $documentStatus,
             'recipients' => $recipientEntries,
             'invoice_stage' => $invoiceStage,
+            'type_of_work' => (string) ($validated['type_of_work'] ?? ''),
             'expected_amount' => $expectedAmount,
             'paid_amount' => $paidAmount,
         ]);
@@ -832,6 +834,7 @@ class EncryptedDocumentController extends Controller
                 'status' => 'active',
                 'recipients' => $recipientEntries,
                 'invoice_stage' => (string) ($invoice->payment_stage ?? ''),
+                'type_of_work' => (string) ($document->type_of_work ?? ''),
                 'expected_amount' => (float) ($invoice->expected_amount ?? 0),
                 'paid_amount' => $newPaidAmount,
             ]);
@@ -1344,7 +1347,7 @@ class EncryptedDocumentController extends Controller
     private function decryptDocumentServerSide(FileMetadata $document): JsonResponse|array
     {
         try {
-            $cipherContent = AzureStorage::get((string) $document->blob_path);
+            $cipherContent = $this->resolveCipherContentByBlobPath((string) $document->blob_path);
             if ($cipherContent === null) {
                 return response()->json(['message' => 'Encrypted file not found in storage'], 404);
             }
@@ -1396,7 +1399,7 @@ class EncryptedDocumentController extends Controller
             return $this->decryptDocumentServerSide($document);
         }
 
-        $cipherContent = AzureStorage::get((string) $document->blob_path);
+        $cipherContent = $this->resolveCipherContentByBlobPath((string) $document->blob_path);
         if ($cipherContent === null) {
             return response()->json(['message' => 'Encrypted file not found in storage'], 404);
         }
@@ -1426,5 +1429,23 @@ class EncryptedDocumentController extends Controller
             'document' => $document,
             'plaintext' => $plainContent,
         ];
+    }
+
+    private function resolveCipherContentByBlobPath(string $blobPath): ?string
+    {
+        if (str_starts_with($blobPath, 'pending://')) {
+            $localRelPath = substr($blobPath, strlen('pending://'));
+            if ($localRelPath === '') {
+                return null;
+            }
+
+            if (!\Illuminate\Support\Facades\Storage::disk('local')->exists($localRelPath)) {
+                return null;
+            }
+
+            return \Illuminate\Support\Facades\Storage::disk('local')->get($localRelPath);
+        }
+
+        return AzureStorage::get($blobPath);
     }
 }

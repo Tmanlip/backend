@@ -29,6 +29,7 @@ class FileMetadata extends Model
         'encrypted_key',
         'iv',
         'invoice_stage',
+        'type_of_work',
         'expected_amount',
         'paid_amount',
     ];

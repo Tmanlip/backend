@@ -15,10 +15,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\FileMetadata;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class LawCaseController extends Controller
 {
+    private const CASE_TYPE_TO_PRACTICE_AREA = [
+        'Litigation' => 'Civil',
+        'Corporate' => 'Corporate',
+        'Criminal' => 'Criminal',
+    ];
+
     public function __construct(
         private readonly CaseNotificationService $caseNotificationService,
         private readonly InvoiceProgressService $invoiceProgressService,
@@ -86,6 +93,152 @@ class LawCaseController extends Controller
         ];
     }
 
+
+    private function parseFeeRangeAmount(string $estimationFees): ?array
+    {
+        if (!preg_match_all('/\d+(?:[\.,]\d+)?/', $estimationFees, $matches)) {
+            return null;
+        }
+
+        $numbers = $matches[0] ?? [];
+        if (count($numbers) < 1) {
+            return null;
+        }
+
+        $min = (float) str_replace(',', '', $numbers[0]);
+        $max = count($numbers) > 1
+            ? (float) str_replace(',', '', $numbers[1])
+            : $min;
+
+        if ($min < 0 || $max < 0 || $min > $max) {
+            return null;
+        }
+
+        return [
+            'rangeMin' => round($min, 2),
+            'rangeMax' => round($max, 2),
+            'estimatedAmount' => round(($min + $max) / 2, 2),
+        ];
+    }
+
+    private function stripUtf8Bom(string $value): string
+    {
+        return preg_replace('/^\xEF\xBB\xBF/', '', $value) ?? $value;
+    }
+
+    private function normalizeFeeSourceItem(array $raw): array
+    {
+        $normalized = [];
+        foreach ($raw as $key => $value) {
+            $normalizedKey = strtolower(str_replace([' ', '_', '-'], '', (string) $key));
+            $normalized[$normalizedKey] = is_string($value) ? $this->stripUtf8Bom(trim($value)) : $value;
+        }
+
+        return [
+            'practiceArea' => (string) ($normalized['practicearea'] ?? ''),
+            'typeOfWork' => (string) ($normalized['typeofwork'] ?? ''),
+            'estimationFees' => (string) ($normalized['estimationfees'] ?? ''),
+        ];
+    }
+
+    public function typeOfWorkOptions(Request $request): JsonResponse
+    {
+        try {
+            $caseType = (string) $request->query('caseType', 'Litigation');
+            $practiceArea = self::CASE_TYPE_TO_PRACTICE_AREA[$caseType] ?? 'Civil';
+            $jsonPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.json');
+            $csvPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.csv');
+
+            $sourceItems = [];
+
+            if (file_exists($jsonPath)) {
+                $raw = @file_get_contents($jsonPath);
+                $decoded = json_decode($this->stripUtf8Bom((string) $raw), true);
+                if (is_array($decoded)) {
+                    $sourceItems = $decoded;
+                }
+            }
+
+            if (empty($sourceItems) && file_exists($csvPath)) {
+                $rows = @file($csvPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                if (is_array($rows) && count($rows) > 1) {
+                    $headers = str_getcsv($this->stripUtf8Bom((string) $rows[0]));
+
+                    for ($i = 1; $i < count($rows); $i++) {
+                        $values = str_getcsv((string) $rows[$i]);
+                        if (count($values) !== count($headers)) {
+                            continue;
+                        }
+
+                        $item = [];
+                        foreach ($headers as $index => $header) {
+                            $item[trim((string) $header)] = $values[$index] ?? null;
+                        }
+
+                        $sourceItems[] = $item;
+                    }
+                }
+            }
+
+            $result = [];
+            $seen = [];
+
+            foreach ($sourceItems as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $normalizedItem = $this->normalizeFeeSourceItem($item);
+                $itemPracticeArea = trim((string) ($normalizedItem['practiceArea'] ?? ''));
+                if ($itemPracticeArea !== $practiceArea) {
+                    continue;
+                }
+
+                $typeOfWork = trim((string) ($normalizedItem['typeOfWork'] ?? ''));
+                $estimationFees = trim((string) ($normalizedItem['estimationFees'] ?? ''));
+
+                if ($typeOfWork === '' || $estimationFees === '') {
+                    continue;
+                }
+
+                $range = $this->parseFeeRangeAmount($estimationFees);
+                if ($range === null) {
+                    continue;
+                }
+
+                $dedupeKey = strtolower($typeOfWork . '|' . $estimationFees);
+                if (isset($seen[$dedupeKey])) {
+                    continue;
+                }
+                $seen[$dedupeKey] = true;
+
+                $result[] = [
+                    'practiceArea' => $itemPracticeArea,
+                    'typeOfWork' => $typeOfWork,
+                    'estimationFeesRange' => $estimationFees,
+                    'estimatedAmount' => $range['estimatedAmount'],
+                    'rangeMin' => $range['rangeMin'],
+                    'rangeMax' => $range['rangeMax'],
+                ];
+            }
+
+            return response()->json([
+                'caseType' => $caseType,
+                'practiceArea' => $practiceArea,
+                'items' => $result,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to load type of work options', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Unable to load type of work options.',
+                'items' => [],
+            ], 200);
+        }
+    }
     private function buildInvoicePaymentPhases(LawCase $case): array
     {
         $summaries = $this->invoiceProgressService->getStageSummaries((int) $case->caseId);
@@ -209,6 +362,46 @@ class LawCaseController extends Controller
                 'case_type_fee_json.second' => 'sometimes|array|max:5',
                 'case_type_fee_json.third' => 'sometimes|array|max:5',
                 'case_type_fee_json.final' => 'sometimes|array|max:5',
+                'case_type_fee_json.initial.*.typeOfWork' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.first.*.typeOfWork' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.second.*.typeOfWork' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.third.*.typeOfWork' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.final.*.typeOfWork' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.initial.*.type_of_work' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.first.*.type_of_work' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.second.*.type_of_work' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.third.*.type_of_work' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.final.*.type_of_work' => 'nullable|string|min:3|max:100',
+                'case_type_fee_json.initial.*.selectedFee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.first.*.selectedFee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.second.*.selectedFee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.third.*.selectedFee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.final.*.selectedFee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.initial.*.selected_fee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.first.*.selected_fee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.second.*.selected_fee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.third.*.selected_fee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.final.*.selected_fee' => 'nullable|numeric|min:0',
+                'case_type_fee_json.initial.*.rangeMin' => 'nullable|numeric|min:0',
+                'case_type_fee_json.first.*.rangeMin' => 'nullable|numeric|min:0',
+                'case_type_fee_json.second.*.rangeMin' => 'nullable|numeric|min:0',
+                'case_type_fee_json.third.*.rangeMin' => 'nullable|numeric|min:0',
+                'case_type_fee_json.final.*.rangeMin' => 'nullable|numeric|min:0',
+                'case_type_fee_json.initial.*.rangeMax' => 'nullable|numeric|min:0',
+                'case_type_fee_json.first.*.rangeMax' => 'nullable|numeric|min:0',
+                'case_type_fee_json.second.*.rangeMax' => 'nullable|numeric|min:0',
+                'case_type_fee_json.third.*.rangeMax' => 'nullable|numeric|min:0',
+                'case_type_fee_json.final.*.rangeMax' => 'nullable|numeric|min:0',
+                'case_type_fee_json.initial.*.range_min' => 'nullable|numeric|min:0',
+                'case_type_fee_json.first.*.range_min' => 'nullable|numeric|min:0',
+                'case_type_fee_json.second.*.range_min' => 'nullable|numeric|min:0',
+                'case_type_fee_json.third.*.range_min' => 'nullable|numeric|min:0',
+                'case_type_fee_json.final.*.range_min' => 'nullable|numeric|min:0',
+                'case_type_fee_json.initial.*.range_max' => 'nullable|numeric|min:0',
+                'case_type_fee_json.first.*.range_max' => 'nullable|numeric|min:0',
+                'case_type_fee_json.second.*.range_max' => 'nullable|numeric|min:0',
+                'case_type_fee_json.third.*.range_max' => 'nullable|numeric|min:0',
+                'case_type_fee_json.final.*.range_max' => 'nullable|numeric|min:0',
                 'expected_initial_payment' => 'nullable|numeric|min:0',
                 'expected_first_payment' => 'nullable|numeric|min:0',
                 'expected_second_payment' => 'nullable|numeric|min:0',
@@ -217,6 +410,54 @@ class LawCaseController extends Controller
                 'oppositionLawyerName' => 'nullable|string|max:255',
                 'oppositionLawyerFirmID' => 'nullable|string|max:255',
             ]);
+
+            if (!empty($validated['case_type_fee_json']) && is_array($validated['case_type_fee_json'])) {
+                foreach (FeePhaseCalculator::STAGES as $stage) {
+                    $items = $validated['case_type_fee_json'][$stage] ?? [];
+                    if (!is_array($items)) {
+                        continue;
+                    }
+
+                    foreach ($items as $index => $item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+
+                        $typeOfWork = trim((string) ($item['typeOfWork'] ?? $item['type_of_work'] ?? ''));
+                        $selectedFee = $item['selectedFee'] ?? $item['selected_fee'] ?? null;
+                        $rangeMin = $item['rangeMin'] ?? $item['range_min'] ?? null;
+                        $rangeMax = $item['rangeMax'] ?? $item['range_max'] ?? null;
+
+                        if ($typeOfWork === '') {
+                            throw ValidationException::withMessages([
+                                "case_type_fee_json.$stage.$index.typeOfWork" => 'Type of Work is required.',
+                            ]);
+                        }
+
+                        if ($rangeMin === null || $rangeMax === null) {
+                            throw ValidationException::withMessages([
+                                "case_type_fee_json.$stage.$index.rangeMin" => 'Range minimum and maximum are required.',
+                            ]);
+                        }
+
+                        $min = (float) $rangeMin;
+                        $max = (float) $rangeMax;
+                        $fee = (float) ($selectedFee ?? 0);
+
+                        if ($min > $max) {
+                            throw ValidationException::withMessages([
+                                "case_type_fee_json.$stage.$index.rangeMax" => 'Range maximum must be greater than or equal to range minimum.',
+                            ]);
+                        }
+
+                        if ($fee < $min || $fee > $max) {
+                            throw ValidationException::withMessages([
+                                "case_type_fee_json.$stage.$index.selectedFee" => 'Selected fee must be within the configured range.',
+                            ]);
+                        }
+                    }
+                }
+            }
 
             // Find lawyer and client
             $lawyer = User::where('firmID', $validated['lawyerID'])
@@ -630,6 +871,9 @@ class LawCaseController extends Controller
                         'is_encrypted' => $this->isDocumentStoredEncrypted($document),
                         'status' => (string) ($document->status ?? 'active'),
                         'created_at' => $document->created_at,
+                        'invoice_stage' => (string) ($document->invoice_stage ?? ''),
+                        'type_of_work' => (string) ($document->type_of_work ?? ''),
+                        'paid_amount' => (float) ($document->paid_amount ?? 0),
                         'preview_url' => "/api/encrypted-documents/{$documentId}/preview",
                         'download_url' => "/api/encrypted-documents/{$documentId}/download",
                         'delete_url' => "/api/encrypted-documents/{$documentId}",

@@ -38,7 +38,7 @@ class UserSeeder extends Seeder
                 'email' => 'admin2@example.com',
                 'username' => 'admin2',
                 'password' => 'password123',
-                'role' => 'admin',
+                'role' => 'junioradmin',
                 'age' => 32,
                 'ICNumber' => '900202-02-2222',
                 'phoneNumber' => '0122222222',
@@ -155,6 +155,18 @@ class UserSeeder extends Seeder
                             'typeOfWork' => 'Case Merits Review',
                             'selectedFee' => 5000,
                             'estimationFeesRange' => '5000 - 25000'
+                        ],
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Initial Evidence Review',
+                            'selectedFee' => 7000,
+                            'estimationFeesRange' => '3000 - 15000'
+                        ],
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Client Strategy Consultation',
+                            'selectedFee' => 3000,
+                            'estimationFeesRange' => '1000 - 5000'
                         ]
                     ],
                     'first' => [
@@ -163,6 +175,12 @@ class UserSeeder extends Seeder
                             'typeOfWork' => 'Demand Letter and Reply',
                             'selectedFee' => 5000,
                             'estimationFeesRange' => '3000 - 10000'
+                        ],
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Pre-Action Negotiation',
+                            'selectedFee' => 4000,
+                            'estimationFeesRange' => '2000 - 12000'
                         ]
                     ],
                     'second' => [
@@ -179,6 +197,12 @@ class UserSeeder extends Seeder
                             'typeOfWork' => 'Court Process Planning',
                             'selectedFee' => 3000,
                             'estimationFeesRange' => '3000 - 30000'
+                        ],
+                        [
+                            'practiceArea' => 'Civil',
+                            'typeOfWork' => 'Witness Preparation',
+                            'selectedFee' => 2000,
+                            'estimationFeesRange' => '1000 - 8000'
                         ]
                     ],
                     'final' => [
@@ -190,10 +214,10 @@ class UserSeeder extends Seeder
                         ]
                     ]
                 ],
-                'expected_initial_payment' => 5000,
-                'expected_first_payment' => 5000,
+                'expected_initial_payment' => 15000,
+                'expected_first_payment' => 9000,
                 'expected_second_payment' => 15000,
-                'expected_third_payment' => 3000,
+                'expected_third_payment' => 5000,
                 'expected_final_payment' => 15000,
             ],
             [

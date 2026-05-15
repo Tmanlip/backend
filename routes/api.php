@@ -47,6 +47,9 @@ Route::middleware('throttle:api')->group(function () {
         Route::post('/generate-invoice-pdf', [DocumentGeneratorController::class, 'generateInvoicePdf']);
         Route::post('/generate-writ-data-xlsx', [DocumentGeneratorController::class, 'generateWritDataXlsx']);
     });
+
+    // Public reference data for case registration dropdowns
+    Route::get('/case-type-work-options', [LawCaseController::class, 'typeOfWorkOptions']);
 });
 
 //Authentication API /api
