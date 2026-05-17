@@ -4,7 +4,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\FileUploadController;
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\InteractionLogController;
 use App\Http\Controllers\DocumentController;
@@ -31,11 +30,6 @@ Route::get('/ping', function () {
 Route::post('/invoices/generate-number', [InvoiceController::class, 'generateInvoiceNumber']);
 
 Route::middleware('throttle:api')->group(function () {
-    Route::get('/db-health', [ChatbotController::class, 'health']);
-    Route::post('/save-chat', [ChatbotController::class, 'saveChat']);
-    Route::get('/chats', [ChatbotController::class, 'chats']);
-    Route::post('/ask', [ChatbotController::class, 'ask']);
-
     Route::prefix('/document-generator')->group(function () {
         Route::get('/health', [DocumentGeneratorController::class, 'health']);
         Route::post('/generate', [DocumentGeneratorController::class, 'ask']);

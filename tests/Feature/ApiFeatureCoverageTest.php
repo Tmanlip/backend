@@ -7,7 +7,6 @@ use App\Models\Meeting;
 use App\Models\User;
 use App\Services\GoogleCalendarService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -168,92 +167,6 @@ class ApiFeatureCoverageTest extends TestCase
 
         $this->getJson('/api/user/' . $targetUser->firmID . '/public-key')
             ->assertOk();
-    }
-
-    public function test_chatbot_ask_route_validates_question_payload(): void
-    {
-        $this->postJson('/api/ask', [])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['question']);
-    }
-
-    public function test_chatbot_prompt_includes_playbook_booking_contact(): void
-    {
-        $requests = [];
-
-        Http::fake(function ($request) use (&$requests) {
-            $requests[] = $request->body();
-
-            $payload = $request->data();
-            if (($payload['model'] ?? null) === 'phi3:mini') {
-                return Http::response([
-                    'message' => [
-                        'content' => '{"category":"civil"}',
-                    ],
-                ]);
-            }
-
-            return Http::response([
-                'message' => [
-                    'content' => 'Civil answer',
-                ],
-            ]);
-        });
-
-        $response = $this->postJson('/api/ask', [
-            'question' => 'I need help with a breach of contract',
-        ]);
-
-        $response->assertOk();
-        $this->assertCount(2, $requests);
-        $this->assertStringContainsString('Booking Contact Name: [Iman Norhizam]', $requests[1]);
-        $response->assertJsonPath('answer', 'Civil answer');
-    }
-
-    public function test_chatbot_returns_contact_immediately_for_explicit_handoff_request(): void
-    {
-        Http::fake();
-
-        $response = $this->postJson('/api/ask', [
-            'question' => 'I need a civil lawyer for a breach of contract case. Can you give me the contact?',
-        ]);
-
-        $response->assertOk();
-        $response->assertJsonPath('category', 'civil');
-        $response->assertJsonPath('model', 'aslaw-civil');
-        $this->assertStringContainsString('Iman Norhizam (Partner Contact)', $response->json('answer'));
-        $this->assertStringContainsString('Phone: 019-2630432', $response->json('answer'));
-        Http::assertSentCount(0);
-    }
-
-    public function test_chatbot_uses_category_hint_for_fee_follow_up_without_domain_keywords(): void
-    {
-        Http::fake();
-
-        $response = $this->postJson('/api/ask', [
-            'question' => 'If I contact him, how much is the fees gonna be?',
-            'category' => 'corporate',
-        ]);
-
-        $response->assertOk();
-        $response->assertJsonPath('category', 'corporate');
-        $response->assertJsonPath('model', 'aslaw-corporate');
-        $this->assertStringContainsString('overview of Corporate Law estimated fees', $response->json('answer'));
-        $this->assertStringContainsString('Iman Norhizam (Partner Contact)', $response->json('answer'));
-        Http::assertSentCount(0);
-    }
-
-    public function test_chatbot_detects_and_corrects_typos(): void
-    {
-        Http::fake();
-
-        $response = $this->postJson('/api/ask', [
-            'question' => 'Why I need to report poliooce?',
-        ]);
-
-        $response->assertOk();
-        $this->assertStringContainsString('Detected typo(s): poliooce → police', $response->json('answer'));
-        $this->assertStringContainsString('Interpreting as: "Why I need to report police?"', $response->json('answer'));
     }
 
     public function test_admin_can_fetch_meetings_list(): void
