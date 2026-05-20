@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\LawCaseController;
 use App\Http\Controllers\Api\MeetingController;
 use App\Http\Controllers\Api\EncryptedDocumentController;
 use App\Http\Controllers\Api\DocumentGeneratorController;
+use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\AzureController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\NotificationController;
@@ -30,6 +31,10 @@ Route::get('/ping', function () {
 Route::post('/invoices/generate-number', [InvoiceController::class, 'generateInvoiceNumber']);
 
 Route::middleware('throttle:api')->group(function () {
+    Route::post('/ask', [ChatbotController::class, 'ask']);
+    Route::get('/chats', [ChatbotController::class, 'chats']);
+    Route::get('/db-health', [ChatbotController::class, 'dbHealth']);
+
     Route::prefix('/document-generator')->group(function () {
         Route::get('/health', [DocumentGeneratorController::class, 'health']);
         Route::post('/generate', [DocumentGeneratorController::class, 'ask']);

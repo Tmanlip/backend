@@ -10,6 +10,7 @@ class FirmIdGenerator
     {
         $prefixMap = [
             'admin'       => 'D',
+            'adminstaff'  => 'A',
             'junioradmin' => 'J',
             'lawyer'      => 'Y',
             'client'      => 'E',

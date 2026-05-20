@@ -24,7 +24,7 @@ class MeetingController extends Controller
         $user = $request->user();
         $role = strtolower((string) $user->role);
 
-        if (!in_array($role, ['admin', 'junioradmin', 'client', 'lawyer'], true)) {
+        if (!in_array($role, ['admin', 'adminstaff', 'junioradmin', 'client', 'lawyer'], true)) {
             return response()->json(['message' => 'Only admin, junior admin, client, or lawyer can access meetings.'], 403);
         }
 
@@ -49,7 +49,7 @@ class MeetingController extends Controller
         $user = $request->user();
         $role = strtolower((string) $user->role);
 
-        if (!in_array($role, ['admin', 'junioradmin', 'client', 'lawyer'], true)) {
+        if (!in_array($role, ['admin', 'adminstaff', 'junioradmin', 'client', 'lawyer'], true)) {
             return response()->json(['message' => 'Only admin, junior admin, client, or lawyer can schedule meetings.'], 403);
         }
 
@@ -69,6 +69,7 @@ class MeetingController extends Controller
 
         if (
             $role !== 'admin'
+            && $role !== 'adminstaff'
             && $role !== 'junioradmin'
             && (int) $lawCase->lawyerID !== (int) $user->id
             && (int) $lawCase->clientID !== (int) $user->id

@@ -78,7 +78,7 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Forbidden for this case'], 403);
         }
 
-        if ($isInvoiceCategory && strtolower((string) $actor->role) !== 'admin') {
+        if ($isInvoiceCategory && !in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
             return response()->json(['message' => 'Only admins can upload invoices'], 403);
         }
 
@@ -325,7 +325,7 @@ class EncryptedDocumentController extends Controller
         }
 
         $role = strtolower((string) ($actor->role ?? ''));
-        if ($role !== 'admin' && $role !== 'lawyer') {
+        if (!in_array($role, ['admin', 'adminstaff', 'lawyer'], true)) {
             return response()->json(['message' => 'Only admins/lawyers can review pending documents'], 403);
         }
 
@@ -447,7 +447,7 @@ class EncryptedDocumentController extends Controller
         }
 
         // For admins, decrypt server-side and return plaintext
-        if (strtolower((string) $actor->role) === 'admin') {
+        if (in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
             return $this->getPayloadForAdmin($document);
         }
 
@@ -584,7 +584,7 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        if (strtolower((string) ($actor->role ?? '')) !== 'admin') {
+        if (!in_array(strtolower((string) ($actor->role ?? '')), ['admin', 'adminstaff'], true)) {
             return response()->json(['message' => 'Only admins can update invoice payment details'], 403);
         }
 
@@ -1049,7 +1049,7 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        if ((string) ($document->category ?? '') === 'invoices' && strtolower((string) $actor->role) !== 'admin') {
+        if ((string) ($document->category ?? '') === 'invoices' && !in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
             return response()->json(['message' => 'Only admins can delete invoices'], 403);
         }
 
@@ -1193,7 +1193,7 @@ class EncryptedDocumentController extends Controller
     private function canManageCase(int $actorId, LawCase $case, ?int $uploaderUserId = null): bool
     {
         $actor = User::find($actorId);
-        if ($actor && strtolower((string) $actor->role) === 'admin') {
+        if ($actor && in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
             return true;
         }
 
@@ -1230,7 +1230,7 @@ class EncryptedDocumentController extends Controller
     private function canAccessDocument(User $actor, FileMetadata $document): bool
     {
         // Admins can access all documents
-        if (strtolower((string) $actor->role) === 'admin') {
+        if (in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
             return true;
         }
 
@@ -1248,7 +1248,7 @@ class EncryptedDocumentController extends Controller
 
         if ($status === 'pending_approval') {
             $role = strtolower((string) ($actor->role ?? ''));
-            return $role === 'admin' || $role === 'lawyer';
+            return in_array($role, ['admin', 'adminstaff', 'lawyer'], true);
         }
 
         return false;
@@ -1395,7 +1395,7 @@ class EncryptedDocumentController extends Controller
         }
 
         // For admins, decrypt server-side
-        if (strtolower((string) $actor->role) === 'admin') {
+        if (in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
             return $this->decryptDocumentServerSide($document);
         }
 

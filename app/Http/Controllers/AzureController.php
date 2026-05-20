@@ -325,7 +325,7 @@ class AzureController extends Controller {
             $actor = $this->resolveActor($request);
             
             // Allow admins to list all files without a folder parameter
-            if (!$folder && strtolower($actor['role']) !== 'admin') {
+            if (!$folder && !in_array(strtolower((string) $actor['role']), ['admin', 'adminstaff'], true)) {
                 return response()->json([ 'error' => 'Folder is required' ], 400); 
             }
 

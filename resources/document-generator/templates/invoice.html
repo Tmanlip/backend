@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; color: #1a1a2e; padding: 30px; }
+    table { border-collapse: collapse; width: 100%; }
+    .main { border: 1px solid #dfe3ea; }
+    .header td { background: #1a1a2e; color: #ffffff; padding: 16px 18px; vertical-align: top; }
+    .title { font-size: 24px; letter-spacing: 1px; font-weight: bold; }
+    .subtitle { margin-top: 4px; font-size: 11px; opacity: 0.85; }
+    .meta { text-align: right; font-size: 11px; line-height: 1.5; }
+    .meta strong { font-size: 13px; }
+    .section td { padding: 14px 18px 8px 18px; vertical-align: top; }
+    .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #6e7785; margin-bottom: 4px; }
+    .value { font-size: 13px; font-weight: bold; color: #1a1a2e; }
+    .value-sub { font-size: 11px; color: #3e4653; }
+    .line td { padding: 0 18px; }
+    .line hr { border: none; border-top: 1px solid #e7eaf0; margin: 4px 0 10px 0; }
+    .amounts td { border-top: 1px solid #edf1f6; padding: 9px 12px; }
+    .amounts .left { width: 70%; color: #30394a; }
+    .amounts .right { width: 30%; text-align: right; font-weight: 600; color: #202838; }
+    .amounts tr.alt td { background: #f8f9fc; }
+    .amounts tr.total td { background: #1a1a2e; color: #ffffff; font-size: 13px; font-weight: bold; }
+    .footer td { padding: 16px 18px; text-align: center; font-size: 10px; color: #7f8796; border-top: 1px solid #edf1f6; }
+</style>
+</head>
+<body>
+    <table class="main">
+        <tr class="header">
+            <td style="width:60%;">
+                <div class="title">{{invoiceTitle}}</div>
+                <div class="subtitle">{{stage}} {{paymentLabel}}</div>
+            </td>
+            <td style="width:40%;" class="meta">
+                <strong>#{{invoiceNum}}</strong><br>
+                {{issuedLabel}}: {{issueDate}}<br>
+                {{dueDate}}
+            </td>
+        </tr>
+
+        <tr class="section">
+            <td>
+                <div class="label">{{billedToLabel}}</div>
+                <div class="value">{{clientName}}</div>
+            </td>
+            <td>
+                <div class="label">{{matterLabel}}</div>
+                <div class="value-sub">{{caseTitle}}</div>
+            </td>
+        </tr>
+
+        <tr class="section">
+            <td colspan="2" style="padding-top: 0;">
+                <div class="label">{{typeOfWorkLabel}}</div>
+                <div class="value-sub">{{typeOfWork}}</div>
+            </td>
+        </tr>
+
+        <tr class="line">
+            <td colspan="2"><hr></td>
+        </tr>
+
+        <tr>
+            <td colspan="2" style="padding: 0 18px 10px 18px;">
+                <table class="amounts">
+                    <tr class="alt"><td class="left">{{expectedAmountLabel}}</td><td class="right">{{expected}}</td></tr>
+                    <tr><td class="left">{{paidAmountLabel}}</td><td class="right">{{paid}}</td></tr>
+                    <tr class="alt"><td class="left">{{typeOfWorkBalanceLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
+                    <tr><td class="left">{{phaseBalanceLabel}}</td><td class="right">{{phaseBalance}}</td></tr>
+                    <tr class="alt"><td class="left">{{taxLabel}}</td><td class="right">{{tax}}</td></tr>
+                    <tr><td class="left">{{discountLabel}}</td><td class="right">{{discount}}</td></tr>
+                    <tr class="alt"><td class="left">{{totalLabel}}</td><td class="right">{{total}}</td></tr>
+                    <tr class="total"><td class="left">{{amountDueLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
+                </table>
+            </td>
+        </tr>
+
+        <tr class="footer">
+            <td colspan="2">{{footer}}</td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -278,7 +278,7 @@ class LawCaseController extends Controller
     private function denyIfArchivedAndNotAdmin(Request $request, LawCase $case): ?JsonResponse
     {
         $actor = $this->resolveActor($request);
-        $isAdmin = $actor['role'] === 'admin';
+        $isAdmin = in_array($actor['role'], ['admin', 'adminstaff'], true);
         $isArchived = strtolower((string) $case->status) === 'archived';
 
         if ($isArchived && !$isAdmin) {
@@ -836,7 +836,7 @@ class LawCaseController extends Controller
             ->where('status', '!=', 'deleted')
             ->get();
 
-        if ($actorRole === 'admin') {
+        if (in_array($actorRole, ['admin', 'adminstaff'], true)) {
             $visible = $documents;
         } elseif ($actorUserId !== null) {
             $visible = $documents->filter(function ($document) use ($actorUserId) {

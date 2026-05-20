@@ -13,7 +13,7 @@ class DocumentGeneratorService
 
     public function __construct()
     {
-        $configured = env('DOCUMENT_TEMPLATE_BASE_PATH');
+        $configured = config('ai.document_template_base_path');
         $this->templateRoot = $configured && trim((string) $configured) !== ''
             ? (string) $configured
             : storage_path('app/document-generator/templates');
@@ -21,7 +21,7 @@ class DocumentGeneratorService
 
     public function health(): array
     {
-        $ollamaBaseUrl = rtrim((string) env('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), '/');
+        $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
 
         try {
             /** @var HttpResponse $response */
@@ -57,10 +57,16 @@ class DocumentGeneratorService
             ? 'Respond in formal Malay (Bahasa Melayu) using professional grammar and tone.'
             : 'Respond in formal English using professional grammar and tone.';
 
-        $ollamaBaseUrl = rtrim((string) env('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), '/');
-        $model = (string) env('DOCUMENT_GENERATOR_MODEL', 'llama3');
-        $timeoutSeconds = (int) env('DOCUMENT_GENERATOR_TIMEOUT_SECONDS', 25);
+        $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
+        $model = (string) config('ai.document_generator_model', 'llama3');
+        $timeoutSeconds = (int) config('ai.document_generator_timeout_seconds', 25);
         $timeoutSeconds = max(5, min($timeoutSeconds, 50));
+        // Keep PHP script timeout above HTTP client timeout to avoid abrupt 60s fatal errors.
+        $scriptTimeoutSeconds = max(90, $timeoutSeconds + 20);
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($scriptTimeoutSeconds);
+        }
+        @ini_set('max_execution_time', (string) $scriptTimeoutSeconds);
 
         /** @var HttpResponse $response */
         $response = Http::connectTimeout(5)->timeout($timeoutSeconds)->post($ollamaBaseUrl . '/api/generate', [
@@ -88,8 +94,8 @@ class DocumentGeneratorService
         return $this->generateDocxFromTemplate(
             'LOD',
             [
-                'LOD_Template_work.docx',
                 'LOD_Template.docx',
+                'LOD_Template_work.docx',
                 'LOD JENERAL TAN SRI DATO SERI ZAMROSE BIN MOHD ZAIN.docx',
             ],
             $variables,
@@ -239,76 +245,50 @@ class DocumentGeneratorService
                 'Ini ialah invois yang dijana oleh komputer. Tandatangan tidak diperlukan.'
             );
 
-                return <<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; color: #1a1a2e; padding: 40px; }
-    .header { background: #1a1a2e; color: #fff; padding: 24px 32px; border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; align-items: center; }
-    .header h1 { font-size: 26px; letter-spacing: 2px; }
-    .header .inv-meta { text-align: right; font-size: 11px; line-height: 1.6; }
-    .header .inv-meta strong { font-size: 13px; }
-    .body-wrap { border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 6px 6px; padding: 28px 32px; }
-    .parties { display: flex; justify-content: space-between; margin-bottom: 24px; }
-    .party-block h3 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px; }
-    .party-block p { font-size: 13px; font-weight: bold; }
-    .party-block .sub { font-weight: normal; font-size: 11px; color: #555; }
-    .divider { border: none; border-top: 1px solid #e8e8e8; margin: 18px 0; }
-    table.amounts { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    table.amounts tr td { padding: 9px 14px; font-size: 12px; }
-    table.amounts tr:nth-child(odd) td { background: #f8f9fc; }
-    table.amounts tr td:last-child { text-align: right; font-weight: 600; }
-    .total-row td { background: #1a1a2e !important; color: #fff; font-size: 13px; font-weight: bold; border-radius: 4px; }
-    .footer { margin-top: 36px; font-size: 10px; color: #aaa; text-align: center; }
-</style>
-</head>
-<body>
-    <div class="header">
-        <div>
-            <h1>{$invoiceTitle}</h1>
-            <div style="font-size:10px;margin-top:4px;opacity:0.75;">{$stage} {$paymentLabel}</div>
-        </div>
-        <div class="inv-meta">
-            <strong>#{$invoiceNum}</strong><br>
-            {$issuedLabel}: {$issueDate}<br>
-            {$dueDate}
-        </div>
-    </div>
-    <div class="body-wrap">
-        <div class="parties">
-            <div class="party-block">
-                <h3>{$billedToLabel}</h3>
-                <p>{$clientName}</p>
-            </div>
-            <div class="party-block" style="text-align:right;">
-                <h3>{$matterLabel}</h3>
-                <p class="sub">{$caseTitle}</p>
-            </div>
-        </div>
-        <div class="party-block" style="margin-bottom:16px;">
-            <h3>{$typeOfWorkLabel}</h3>
-            <p class="sub">{$typeOfWork}</p>
-        </div>
-        <hr class="divider">
-        <table class="amounts">
-            <tr><td>{$expectedAmountLabel}</td><td>{$expected}</td></tr>
-            <tr><td>{$paidAmountLabel}</td><td>{$paid}</td></tr>
-            <tr><td>{$typeOfWorkBalanceLabel}</td><td>{$typeOfWorkBalance}</td></tr>
-            <tr><td>{$phaseBalanceLabel}</td><td>{$phaseBalance}</td></tr>
-            <tr><td>{$taxLabel}</td><td>{$tax}</td></tr>
-            <tr><td>{$discountLabel}</td><td>{$discount}</td></tr>
-            <tr><td>{$totalLabel}</td><td>{$total}</td></tr>
-            <tr class="total-row"><td>{$amountDueLabel}</td><td>{$typeOfWorkBalance}</td></tr>
-        </table>
-        <div class="footer">{$footer}</div>
-    </div>
-</body>
-</html>
-HTML;
+            return $this->renderInvoiceTemplate([
+                '{{invoiceTitle}}' => $invoiceTitle,
+                '{{stage}}' => $stage,
+                '{{paymentLabel}}' => $paymentLabel,
+                '{{invoiceNum}}' => $invoiceNum,
+                '{{issuedLabel}}' => $issuedLabel,
+                '{{issueDate}}' => $issueDate,
+                '{{dueDate}}' => $dueDate,
+                '{{billedToLabel}}' => $billedToLabel,
+                '{{clientName}}' => $clientName,
+                '{{matterLabel}}' => $matterLabel,
+                '{{caseTitle}}' => $caseTitle,
+                '{{typeOfWorkLabel}}' => $typeOfWorkLabel,
+                '{{typeOfWork}}' => $typeOfWork,
+                '{{expectedAmountLabel}}' => $expectedAmountLabel,
+                '{{expected}}' => $expected,
+                '{{paidAmountLabel}}' => $paidAmountLabel,
+                '{{paid}}' => $paid,
+                '{{typeOfWorkBalanceLabel}}' => $typeOfWorkBalanceLabel,
+                '{{typeOfWorkBalance}}' => $typeOfWorkBalance,
+                '{{phaseBalanceLabel}}' => $phaseBalanceLabel,
+                '{{phaseBalance}}' => $phaseBalance,
+                '{{taxLabel}}' => $taxLabel,
+                '{{tax}}' => $tax,
+                '{{discountLabel}}' => $discountLabel,
+                '{{discount}}' => $discount,
+                '{{totalLabel}}' => $totalLabel,
+                '{{total}}' => $total,
+                '{{amountDueLabel}}' => $amountDueLabel,
+                '{{footer}}' => $footer,
+            ]);
         }
+
+    private function renderInvoiceTemplate(array $placeholders): string
+    {
+        $templatePath = resource_path('document-generator/templates/invoice.html');
+        $template = @file_get_contents($templatePath);
+
+        if (!is_string($template) || trim($template) === '') {
+            throw new RuntimeException('Invoice HTML template not found or empty at ' . $templatePath);
+        }
+
+        return strtr($template, $placeholders);
+    }
 
     private function resolveInvoiceLanguage(array $variables): string
     {
@@ -922,6 +902,33 @@ XML;
             if (array_key_exists($key, $formData)) {
                 $variables[$key] = $formData[$key];
             }
+        }
+
+        $defamationKeys = [
+            'BackgroundFacts',
+            'DefamationActs',
+            'DefamatoryStatementsDetails',
+            'ImageUploadDetails',
+            'AdditionalPublicationDetails',
+            'ReshareDetails',
+        ];
+
+        $defamationValues = [];
+        foreach ($defamationKeys as $key) {
+            $rawValue = $variables[$key] ?? '';
+            $normalized = trim((string) $rawValue);
+            if ($normalized !== '') {
+                $defamationValues[] = $normalized;
+            }
+        }
+
+        foreach ($defamationKeys as $index => $key) {
+            if (array_key_exists($index, $defamationValues)) {
+                $variables[$key] = ($index + 1) . '. ' . $defamationValues[$index];
+                continue;
+            }
+
+            $variables[$key] = '';
         }
 
         $checkboxAliases = [

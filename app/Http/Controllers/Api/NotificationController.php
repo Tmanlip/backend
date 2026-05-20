@@ -23,7 +23,7 @@ class NotificationController extends Controller
         $limit = max(1, min($limit, 100));
         $role = strtolower((string) ($user->role ?? ''));
 
-        if ($role === 'admin') {
+        if ($role === 'admin' || $role === 'adminstaff') {
             $notifications = DatabaseNotification::query()
                 ->where('type', InAppUserNotification::class)
                 ->where('data', 'like', '%"category":"' . self::CASE_INTERACTION_CATEGORY . '"%')
@@ -68,7 +68,7 @@ class NotificationController extends Controller
         $role = strtolower((string) ($user->role ?? ''));
         $notificationId = (string) $request->input('id', '');
 
-        if ($role === 'admin') {
+        if ($role === 'admin' || $role === 'adminstaff') {
             $adminCaseNotifications = DatabaseNotification::query()
                 ->where('type', InAppUserNotification::class)
                 ->where('data', 'like', '%"category":"' . self::CASE_INTERACTION_CATEGORY . '"%');
