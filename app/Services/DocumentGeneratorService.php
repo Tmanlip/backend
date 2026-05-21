@@ -60,19 +60,21 @@ class DocumentGeneratorService
         $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
         $model = (string) config('ai.document_generator_model', 'llama3');
         $timeoutSeconds = (int) config('ai.document_generator_timeout_seconds', 25);
-        $timeoutSeconds = max(5, min($timeoutSeconds, 50));
+        $timeoutSeconds = max(5, min($timeoutSeconds, 300));
         // Keep PHP script timeout above HTTP client timeout to avoid abrupt 60s fatal errors.
         $scriptTimeoutSeconds = max(90, $timeoutSeconds + 20);
         if (function_exists('set_time_limit')) {
             @set_time_limit($scriptTimeoutSeconds);
         }
         @ini_set('max_execution_time', (string) $scriptTimeoutSeconds);
+        $keepAlive = config('ai.chatbot_keep_alive', '10m');
 
         /** @var HttpResponse $response */
         $response = Http::connectTimeout(5)->timeout($timeoutSeconds)->post($ollamaBaseUrl . '/api/generate', [
             'model' => $model,
             'prompt' => $languageInstruction . "\n\n" . $prompt,
             'stream' => false,
+            'keep_alive' => $keepAlive,
         ]);
 
         if (! $response->successful()) {
