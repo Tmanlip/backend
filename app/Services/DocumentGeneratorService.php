@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -60,7 +61,9 @@ class DocumentGeneratorService
         $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
         $model = (string) config('ai.document_generator_model', 'llama3');
         $timeoutSeconds = (int) config('ai.document_generator_timeout_seconds', 25);
-        $timeoutSeconds = max(5, min($timeoutSeconds, 300));
+        $timeoutSeconds = max(30, min($timeoutSeconds, 600));
+        $connectTimeoutSeconds = (int) config('ai.ollama_connect_timeout_seconds', 20);
+        $connectTimeoutSeconds = max(5, min($connectTimeoutSeconds, 120));
         // Keep PHP script timeout above HTTP client timeout to avoid abrupt 60s fatal errors.
         $scriptTimeoutSeconds = max(90, $timeoutSeconds + 20);
         if (function_exists('set_time_limit')) {
@@ -70,7 +73,12 @@ class DocumentGeneratorService
         $keepAlive = config('ai.chatbot_keep_alive', '10m');
 
         /** @var HttpResponse $response */
-        $response = Http::connectTimeout(5)->timeout($timeoutSeconds)->post($ollamaBaseUrl . '/api/generate', [
+        $response = Http::retry(2, 1000, function ($exception): bool {
+                return $exception instanceof ConnectionException;
+            })
+            ->connectTimeout($connectTimeoutSeconds)
+            ->timeout($timeoutSeconds)
+            ->post($ollamaBaseUrl . '/api/generate', [
             'model' => $model,
             'prompt' => $languageInstruction . "\n\n" . $prompt,
             'stream' => false,

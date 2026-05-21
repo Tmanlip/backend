@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -45,7 +46,9 @@ class ChatbotService
     {
         $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
         $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 180);
-        $timeoutSeconds = max(10, min($timeoutSeconds, 300));
+        $timeoutSeconds = max(30, min($timeoutSeconds, 600));
+        $connectTimeoutSeconds = (int) config('ai.ollama_connect_timeout_seconds', 20);
+        $connectTimeoutSeconds = max(5, min($connectTimeoutSeconds, 120));
         // Keep PHP script timeout above HTTP client timeout to avoid abrupt 60s fatal errors.
         $scriptTimeoutSeconds = max(90, $timeoutSeconds + 30);
         if (function_exists('set_time_limit')) {
@@ -61,7 +64,10 @@ class ChatbotService
             . $question;
 
         /** @var HttpResponse $response */
-        $response = Http::connectTimeout(5)
+        $response = Http::retry(2, 1000, function ($exception): bool {
+                return $exception instanceof ConnectionException;
+            })
+            ->connectTimeout($connectTimeoutSeconds)
             ->timeout($timeoutSeconds)
             ->post($ollamaBaseUrl . '/api/generate', [
                 'model' => $model,

@@ -2,6 +2,7 @@
 
 return [
     'ollama_base_url' => env('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'),
+    'ollama_connect_timeout_seconds' => env('OLLAMA_CONNECT_TIMEOUT_SECONDS', 20),
     'document_template_base_path' => env('DOCUMENT_TEMPLATE_BASE_PATH', storage_path('app/document-generator/templates')),
     'document_generator_model' => env('DOCUMENT_GENERATOR_MODEL', 'llama3'),
     'document_generator_timeout_seconds' => env('DOCUMENT_GENERATOR_TIMEOUT_SECONDS', 25),
