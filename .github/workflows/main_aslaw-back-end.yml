@@ -69,3 +69,21 @@ jobs:
           app-name: 'aslaw-back-end'
           slot-name: 'Production'
           package: .
+
+      - name: Warm up chatbot endpoint
+        continue-on-error: true
+        run: |
+          BASE_URL="https://aslaw-back-end-emeyfvfcarepa8dj.southeastasia-01.azurewebsites.net"
+          curl --fail --show-error --connect-timeout 20 --max-time 420 \
+            -H 'Content-Type: application/json' \
+            -d '{"question":"Say OK only.","category":"general","persist":false}' \
+            "$BASE_URL/api/ask" >/dev/null
+
+      - name: Warm up document-generator endpoint
+        continue-on-error: true
+        run: |
+          BASE_URL="https://aslaw-back-end-emeyfvfcarepa8dj.southeastasia-01.azurewebsites.net"
+          curl --fail --show-error --connect-timeout 20 --max-time 420 \
+            -H 'Content-Type: application/json' \
+            -d '{"prompt":"Say OK only.","language":"english"}' \
+            "$BASE_URL/api/document-generator/generate" >/dev/null

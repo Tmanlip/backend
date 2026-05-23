@@ -41,4 +41,12 @@ return [
         'delegated_user' => env('GOOGLE_CALENDAR_DELEGATED_USER'),
     ],
 
+    'webpubsub' => [
+        'enabled' => (bool) env('AZURE_WEBPUBSUB_ENABLED', false),
+        'connection_string' => env('AZURE_WEBPUBSUB_CONNECTION_STRING'),
+        'hub' => env('AZURE_WEBPUBSUB_HUB', 'aslaw-notifications'),
+        'token_ttl_seconds' => (int) env('AZURE_WEBPUBSUB_TOKEN_TTL_SECONDS', 3600),
+        'api_version' => env('AZURE_WEBPUBSUB_API_VERSION', '2024-01-01'),
+    ],
+
 ];

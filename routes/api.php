@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\AzureController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\RealtimeController;
 use App\Http\Middleware\CheckArchivedUser;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
@@ -77,6 +78,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', CheckArchivedUser::class])->g
     Route::get('/logs/interactions', [InteractionLogController::class, 'index']);
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::post('/notifications/mark-read', [NotificationController::class, 'markRead']);
+    Route::post('/realtime/negotiate', [RealtimeController::class, 'negotiate']);
 
     // Cases API /api
     Route::post('/registercases', [LawCaseController::class, 'store']);

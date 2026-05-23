@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\Mail;
 
 class CaseNotificationService
 {
+    public function __construct(
+        private readonly AzureWebPubSubService $azureWebPubSubService,
+    ) {}
+
     public function notifyCaseUpdate(LawCase $case, ?User $actor, string $actionLabel, string $summary): void
     {
         $this->notifyStakeholders($case, $actor, $actionLabel, $summary);
@@ -68,6 +72,19 @@ class CaseNotificationService
                     message: sprintf('%s (Case #%d: %s)', $summary, (int) $case->caseId, (string) $case->title),
                     category: 'case',
                 ))->toOthers();
+
+                if ($this->azureWebPubSubService->isEnabled()) {
+                    $this->azureWebPubSubService->publishToUser(
+                        userId: (int) $recipient->id,
+                        payload: [
+                            'event' => 'UserNotificationCreated',
+                            'title' => $actionLabel,
+                            'message' => sprintf('%s (Case #%d: %s)', $summary, (int) $case->caseId, (string) $case->title),
+                            'category' => 'case',
+                            'created_at' => now()->toIso8601String(),
+                        ]
+                    );
+                }
             } catch (\Throwable $e) {
                 Log::warning('Case in-app notification failed', [
                     'case_id' => (int) $case->caseId,
