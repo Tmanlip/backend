@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use MicrosoftAzure\Storage\Common\Exceptions\ServiceException;
 use MicrosoftAzure\Storage\Blob\BlobRestProxy;
 use MicrosoftAzure\Storage\Blob\Models\CreateBlockBlobOptions;
 use MicrosoftAzure\Storage\Blob\Models\DeleteBlobOptions;
@@ -9,6 +10,9 @@ use MicrosoftAzure\Storage\Blob\Models\GetBlobOptions;
 
 class AzureStorage
 {
+    /** @var array<string, bool> */
+    protected static array $containerChecked = [];
+
     protected static function client()
     {
         $connectionString = env('AZURE_STORAGE_CONNECTION_STRING');
@@ -29,14 +33,61 @@ class AzureStorage
 
     protected static function container(): string
     {
-        return env('AZURE_STORAGE_CONTAINER');
+        $container = trim((string) env('AZURE_STORAGE_CONTAINER', ''));
+
+        if ($container === '') {
+            throw new \RuntimeException('AZURE_STORAGE_CONTAINER is not configured.');
+        }
+
+        return $container;
+    }
+
+    protected static function ensureContainerExists(BlobRestProxy $client, string $container): void
+    {
+        if (!empty(self::$containerChecked[$container])) {
+            return;
+        }
+
+        try {
+            $client->getContainerProperties($container);
+            self::$containerChecked[$container] = true;
+            return;
+        } catch (ServiceException $e) {
+            $notFound = (int) $e->getCode() === 404 || str_contains((string) $e->getMessage(), 'ContainerNotFound');
+            if (!$notFound) {
+                throw $e;
+            }
+        }
+
+        $client->createContainer($container);
+        self::$containerChecked[$container] = true;
     }
 
     public static function put(string $blobName, string $content): void
     {
         $client = self::client();
+        $container = self::container();
+        self::ensureContainerExists($client, $container);
+
         $options = new CreateBlockBlobOptions();
-        $client->createBlockBlob(self::container(), $blobName, $content, $options);
+        $attempts = max(1, (int) env('AZURE_STORAGE_UPLOAD_RETRIES', 2));
+        $lastException = null;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $client->createBlockBlob($container, $blobName, $content, $options);
+                return;
+            } catch (\Throwable $e) {
+                $lastException = $e;
+                if ($attempt < $attempts) {
+                    usleep(200000 * $attempt);
+                }
+            }
+        }
+
+        if ($lastException instanceof \Throwable) {
+            throw $lastException;
+        }
     }
 
     public static function get(string $blobName): ?string

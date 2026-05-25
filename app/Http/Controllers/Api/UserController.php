@@ -204,6 +204,9 @@ class UserController extends Controller
 
             logger()->error('User registration failed while uploading passport picture.', [
                 'email' => $request->input('email'),
+                'firm_id' => $user?->firmID,
+                'blob_path' => $blobPath ?? null,
+                'storage_container' => env('AZURE_STORAGE_CONTAINER'),
                 'message' => $e->getMessage(),
             ]);
 
