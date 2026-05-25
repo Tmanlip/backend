@@ -1021,6 +1021,17 @@ class EncryptedDocumentController extends Controller
         $document->recipients = array_values($recipientMap);
         $document->save();
 
+        $this->caseNotificationService->notifyCaseUpdate(
+            $case,
+            $actor,
+            'Document Shared',
+            sprintf(
+                '%s was shared with %d recipient(s).',
+                (string) $document->file_name,
+                $added
+            )
+        );
+
         return response()->json([
             'message' => 'Document shared successfully',
             'document_id' => (string) $document->getKey(),
@@ -1076,6 +1087,17 @@ class EncryptedDocumentController extends Controller
 
         $document->recipients = $recipients;
         $document->save();
+
+        $this->caseNotificationService->notifyCaseUpdate(
+            $case,
+            $actor,
+            'Document Access Revoked',
+            sprintf(
+                'Access to %s was revoked for recipient #%d.',
+                (string) $document->file_name,
+                $recipientId
+            )
+        );
 
         return response()->json([
             'message' => 'Recipient access revoked successfully',

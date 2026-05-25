@@ -55,6 +55,10 @@ class CaseNotificationService
                 return (int) $recipient->id !== (int) $actor->id || strtolower((string) $actor->role) === 'admin';
             });
 
+        $recipientIds = $recipients
+            ->map(fn (User $recipient) => (int) $recipient->id)
+            ->values();
+
         foreach ($recipients as $recipient) {
             try {
                 $recipient->notify(new InAppUserNotification([
@@ -106,6 +110,33 @@ class CaseNotificationService
                 Log::warning('Case notification email failed', [
                     'case_id' => (int) $case->caseId,
                     'recipient' => $recipient->email,
+                    'action' => $actionLabel,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Ensure the actor's open page can self-refresh via Web PubSub after create/update actions.
+        if (
+            $actor instanceof User &&
+            $this->azureWebPubSubService->isEnabled() &&
+            !$recipientIds->contains((int) $actor->id)
+        ) {
+            try {
+                $this->azureWebPubSubService->publishToUser(
+                    userId: (int) $actor->id,
+                    payload: [
+                        'event' => 'UserNotificationCreated',
+                        'title' => $actionLabel,
+                        'message' => sprintf('%s (Case #%d: %s)', $summary, (int) $case->caseId, (string) $case->title),
+                        'category' => 'case',
+                        'created_at' => now()->toIso8601String(),
+                    ]
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Case self-refresh realtime publish failed', [
+                    'case_id' => (int) $case->caseId,
+                    'actor_id' => (int) $actor->id,
                     'action' => $actionLabel,
                     'error' => $e->getMessage(),
                 ]);

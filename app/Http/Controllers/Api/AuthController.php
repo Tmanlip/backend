@@ -13,10 +13,12 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use App\Mail\ResetPasswordMail;
 use App\Models\UserPicture;
 use App\Services\AzureStorage;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -314,10 +316,24 @@ class AuthController extends Controller
 
     private function resolveUserPhoto(int $userId, string $firmId): array
     {
-        $picture = UserPicture::where('firm_id', $firmId)
-            ->orWhere('user_id', $userId)
-            ->latest('updated_at')
-            ->first();
+        try {
+            $picture = UserPicture::where('firm_id', $firmId)
+                ->orWhere('user_id', $userId)
+                ->latest('updated_at')
+                ->first();
+        } catch (Throwable $exception) {
+            Log::warning('User photo lookup skipped because MongoDB is unavailable during login.', [
+                'user_id' => $userId,
+                'firm_id' => $firmId,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return [
+                'photo' => null,
+                'photo_blob_path' => null,
+                'photo_url' => null,
+            ];
+        }
 
         if (!$picture) {
             return [

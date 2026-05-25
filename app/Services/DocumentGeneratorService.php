@@ -250,15 +250,25 @@ class DocumentGeneratorService
             $discountLabel = $choose('Discount', 'Diskaun');
             $totalLabel = $choose('Total', 'Jumlah Keseluruhan');
             $amountDueLabel = $choose('Amount Due', 'Jumlah Perlu Dibayar');
+            $brandTagline = $choose('Professional Legal Invoice', 'Invois Undang-undang Profesional');
+            $brandContactLine = $esc((string) ($v['brand_contact_line'] ?? 'admin@aslaw.com.my | +60 12-345 6789'));
             $footer = $choose(
                 'This is a computer-generated invoice. No signature is required.',
                 'Ini ialah invois yang dijana oleh komputer. Tandatangan tidak diperlukan.'
             );
 
+            $logoDataUri = $this->buildInvoiceLogoDataUri();
+            $brandLogoHtml = $logoDataUri !== null
+                ? '<img src="' . $esc($logoDataUri) . '" alt="ASLAW" />'
+                : '<span class="brand-text">ASLAW</span>';
+
             return $this->renderInvoiceTemplate([
                 '{{invoiceTitle}}' => $invoiceTitle,
                 '{{stage}}' => $stage,
                 '{{paymentLabel}}' => $paymentLabel,
+                '{{brandLogoHtml}}' => $brandLogoHtml,
+                '{{brandTagline}}' => $brandTagline,
+                '{{brandContactLine}}' => $brandContactLine,
                 '{{invoiceNum}}' => $invoiceNum,
                 '{{issuedLabel}}' => $issuedLabel,
                 '{{issueDate}}' => $issueDate,
@@ -298,6 +308,22 @@ class DocumentGeneratorService
         }
 
         return strtr($template, $placeholders);
+    }
+
+    private function buildInvoiceLogoDataUri(): ?string
+    {
+        $logoPath = public_path('images/aslaw-logo.png');
+
+        if (!is_file($logoPath) || !is_readable($logoPath)) {
+            return null;
+        }
+
+        $contents = @file_get_contents($logoPath);
+        if (!is_string($contents) || $contents === '') {
+            return null;
+        }
+
+        return 'data:image/png;base64,' . base64_encode($contents);
     }
 
     private function resolveInvoiceLanguage(array $variables): string

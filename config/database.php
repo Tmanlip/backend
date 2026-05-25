@@ -117,6 +117,18 @@ return [
             'driver' => 'mongodb',
             'dsn' => env('MONGODB_URI', env('MONGO_URI')),
             'database' => env('MONGODB_DATABASE', 'aslaw'),
+            'options' => array_filter([
+                'appname' => env('MONGODB_APP_NAME'),
+                'authSource' => env('MONGODB_AUTH_SOURCE'),
+                'authMechanism' => env('MONGODB_AUTH_MECHANISM'),
+                'replicaSet' => env('MONGODB_REPLICA_SET'),
+                'directConnection' => env('MONGODB_DIRECT_CONNECTION'),
+                'retryWrites' => env('MONGODB_RETRY_WRITES'),
+                'tls' => env('MONGODB_TLS'),
+                'serverSelectionTimeoutMS' => env('MONGODB_SERVER_SELECTION_TIMEOUT_MS'),
+                'connectTimeoutMS' => env('MONGODB_CONNECT_TIMEOUT_MS'),
+                'socketTimeoutMS' => env('MONGODB_SOCKET_TIMEOUT_MS'),
+            ], static fn ($value) => !is_null($value) && $value !== ''),
         ],
 
 
