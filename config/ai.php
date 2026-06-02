@@ -12,4 +12,5 @@ return [
     'chatbot_max_tokens' => env('CHATBOT_MAX_TOKENS', 220),
     'chatbot_temperature' => env('CHATBOT_TEMPERATURE', 0.15),
     'chatbot_keep_alive' => env('CHATBOT_KEEP_ALIVE', '10m'),
+    'chatbot_fallback_model' => env('CHATBOT_FALLBACK_MODEL', 'llama3'),
 ];

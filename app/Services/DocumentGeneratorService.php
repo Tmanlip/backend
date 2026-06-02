@@ -161,24 +161,13 @@ class DocumentGeneratorService
     {
         $v = $this->buildInvoiceVariables($formData);
 
-        // PRIMARY APPROACH: Render PDF directly from HTML template using Dompdf.
-        // This is the active, production method for invoice PDF generation.
-        // - Generates styled, professional PDF invoices with consistent formatting
-        // - Uses dynamic HTML template with embedded CSS
-        // - No static template files required
-        // - No LibreOffice dependency (unlike LOD PDF generation)
-        // - Fast, reliable, and portable across platforms
+        // Render the invoice HTML template into a temporary DOCX bundle and
+        // convert it to PDF with LibreOffice so the endpoint stays HTML-driven
+        // without depending on Dompdf/GD.
         $html = $this->buildInvoiceHtmlFromVariables($v);
 
-        $dompdf = new \Dompdf\Dompdf(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => false]);
-        $dompdf->loadHtml($html, 'UTF-8');
-        $dompdf->setPaper('A4', 'portrait');
-        $dompdf->render();
-        $pdfBuffer = $dompdf->output();
-
-        if (!$pdfBuffer) {
-            throw new RuntimeException('dompdf failed to render invoice PDF.');
-        }
+        $docx = $this->createDocxFromHtml($html, 'invoice-template.docx');
+        $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
 
         $safeNum = preg_replace('/[^A-Za-z0-9\-_]/', '_', (string)($v['invoice_number'] ?? 'invoice'));
 
@@ -258,8 +247,10 @@ class DocumentGeneratorService
             );
 
             $logoDataUri = $this->buildInvoiceLogoDataUri();
+            // Word/LibreOffice HTML import may ignore parts of stylesheet CSS,
+            // so keep hard image constraints inline to prevent oversized logos.
             $brandLogoHtml = $logoDataUri !== null
-                ? '<img src="' . $esc($logoDataUri) . '" alt="ASLAW" />'
+                ? '<img src="' . $esc($logoDataUri) . '" alt="ASLAW" width="220" height="36" style="display:block;width:220px;height:36px;" />'
                 : '<span class="brand-text">ASLAW</span>';
 
             return $this->renderInvoiceTemplate([

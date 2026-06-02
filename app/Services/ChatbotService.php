@@ -12,37 +12,78 @@ class ChatbotService
     /**
      * Ask ASLAW chatbot and return answer + routing metadata.
      */
-    public function ask(string $question, ?string $categoryHint = null): array
+    public function ask(string $question, ?string $categoryHint = null, ?string $languageHint = null): array
     {
         $category = $this->resolveCategory($question, $categoryHint);
         $model = $this->resolveModel($category);
+        $language = $this->resolveResponseLanguage($question, $languageHint);
 
         if ($this->isFeeOrContactIntent($question)) {
             return [
-                'answer' => $this->buildFeeContactReferenceResponse($category),
+                'answer' => $this->buildFeeContactReferenceResponse($category, $language),
                 'category' => $category,
                 'model' => $model,
             ];
         }
 
         if ($this->isGreetingIntent($question)) {
+            $greeting = $language === 'malay'
+                ? 'Hai. Saya ASLAW chatbot. Sila tanya soalan undang-undang anda. Jika boleh, pilih domain (civil/corporate/criminal) untuk routing yang lebih tepat.'
+                : 'Hello. I am ASLAW chatbot. Please ask your legal question and, if possible, choose a domain (civil/corporate/criminal) for faster routing.';
+
             return [
-                'answer' => "Hello. I am ASLAW chatbot. Please ask your legal question and, if possible, choose a domain (civil/corporate/criminal) for faster routing.",
+                'answer' => $greeting,
                 'category' => $category,
                 'model' => $model,
             ];
         }
 
-        $response = $this->generateWithModel($model, $question);
+        $generation = $this->generateWithModelFallback($model, $question, $language);
 
         return [
-            'answer' => $response,
+            'answer' => $generation['answer'],
             'category' => $category,
-            'model' => $model,
+            'model' => $generation['model'],
         ];
     }
 
-    private function generateWithModel(string $model, string $question): string
+    private function generateWithModelFallback(string $preferredModel, string $question, string $language): array
+    {
+        $fallbackModel = $this->resolveModel('general');
+        $lightweightFallbackModel = trim((string) config('ai.chatbot_fallback_model', 'llama3'));
+        $models = array_values(array_unique(array_filter([
+            $preferredModel,
+            $fallbackModel,
+            $lightweightFallbackModel,
+        ], static fn ($m) => is_string($m) && trim($m) !== '')));
+
+        $lastErrorMessage = null;
+        foreach ($models as $model) {
+            try {
+                return [
+                    'answer' => $this->generateWithModel($model, $question, $language),
+                    'model' => $model,
+                ];
+            } catch (\Throwable $error) {
+                $lastErrorMessage = $error->getMessage();
+            }
+        }
+
+        $fallbackMessage = $language === 'malay'
+            ? 'Maaf, sistem chatbot sedang sibuk buat sementara waktu. Sila cuba semula dalam beberapa minit atau nyatakan semula soalan anda dengan lebih ringkas.'
+            : 'Sorry, the chatbot is temporarily busy. Please try again in a few minutes or rephrase your question more briefly.';
+
+        if ($lastErrorMessage !== null) {
+            $fallbackMessage .= ' (' . $lastErrorMessage . ')';
+        }
+
+        return [
+            'answer' => $fallbackMessage,
+            'model' => $preferredModel,
+        ];
+    }
+
+    private function generateWithModel(string $model, string $question, string $language): string
     {
         $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
         $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 180);
@@ -60,7 +101,13 @@ class ChatbotService
         $temperature = (float) config('ai.chatbot_temperature', 0.15);
         $temperature = max(0.0, min($temperature, 1.0));
 
-        $prompt = "Answer concisely with practical legal information. Keep the response reasonably short unless user asks for detailed explanation.\n\n"
+        $languageInstruction = $language === 'malay'
+            ? 'Jawab dalam Bahasa Melayu yang jelas dan profesional.'
+            : 'Answer in clear professional English.';
+
+        $prompt = "Answer concisely with practical legal information. Keep the response reasonably short unless user asks for detailed explanation. "
+            . $languageInstruction
+            . "\n\n"
             . $question;
 
         /** @var HttpResponse $response */
@@ -81,7 +128,8 @@ class ChatbotService
             ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException('Ollama request failed with status ' . $response->status());
+            $bodySnippet = mb_substr((string) $response->body(), 0, 300);
+            throw new RuntimeException('Ollama request failed with status ' . $response->status() . '. ' . trim($bodySnippet));
         }
 
         $answer = trim((string) data_get($response->json(), 'response', ''));
@@ -141,6 +189,33 @@ class ChatbotService
         return 'general';
     }
 
+    private function resolveResponseLanguage(string $question, ?string $languageHint = null): string
+    {
+        $hint = strtolower(trim((string) $languageHint));
+        if (in_array($hint, ['malay', 'bm', 'bahasa', 'bahasa melayu'], true)) {
+            return 'malay';
+        }
+
+        if (in_array($hint, ['english', 'en'], true)) {
+            return 'english';
+        }
+
+        $q = strtolower($question);
+        $malayIndicators = [
+            ' saya ', ' saya', ' saya?', 'saya ', ' yang ', ' dan ', 'atau ',
+            'adalah', 'boleh', 'tidak', 'undang-undang', 'syarikat', 'pemegang saham',
+            'saman', 'peguam', 'hak', 'mahkamah', 'jenayah', 'kontrak', 'bagaimana', 'kenapa',
+        ];
+
+        foreach ($malayIndicators as $indicator) {
+            if (str_contains($q, trim($indicator)) || str_contains($q, $indicator)) {
+                return 'malay';
+            }
+        }
+
+        return 'english';
+    }
+
     private function containsAny(string $haystack, array $needles): bool
     {
         foreach ($needles as $needle) {
@@ -197,9 +272,39 @@ class ChatbotService
         return $q !== '' && strlen($q) <= 40 && $this->containsAny($q, $greetings);
     }
 
-    private function buildFeeContactReferenceResponse(string $category): string
+    private function buildFeeContactReferenceResponse(string $category, string $language): string
     {
         $contact = 'Partner Contact: Iman Norhizam | Phone: 019-2630432 | WhatsApp: 019-2630432 | Email: Iman@gmail.com';
+
+        if ($language === 'malay') {
+            return match ($category) {
+                'civil' => "Rujukan yuran civil (anggaran, bergantung skop/kerumitan):\n"
+                    . "- Nasihat dan pra-tindakan: RM3,000 - RM250,000\n"
+                    . "- Penyediaan perjanjian/dokumen: RM3,000 - RM180,000\n"
+                    . "- Pakej retainer: Essential RM10,000/bulan, Premium RM15,000/bulan, Elite RM20,000/bulan\n"
+                    . "- Tenancy dan lease: Tertakluk kepada SRO jika berkaitan\n\n"
+                    . $contact,
+                'corporate' => "Rujukan yuran corporate (anggaran, bergantung skop/kerumitan):\n"
+                    . "- Hal pertumbuhan bisnes dan berkaitan: RM3,000 - RM250,000\n"
+                    . "- Penyediaan perjanjian: RM3,000 - RM180,000\n"
+                    . "- Kadar ad hoc sejam: Partner RM500/jam, Senior Associate RM350/jam, Associate RM250/jam\n"
+                    . "- Pakej retainer: Essential RM10,000/bulan, Premium RM15,000/bulan, Elite RM20,000/bulan\n"
+                    . "- Tenancy dan lease: Tertakluk kepada SRO jika berkaitan\n\n"
+                    . $contact,
+                'criminal' => "Rujukan yuran criminal (anggaran, bergantung skop/kerumitan):\n"
+                    . "- Nasihat dan perkara berkaitan: RM3,000 - RM250,000\n"
+                    . "- Dokumen berkaitan jenayah: RM3,000 - RM180,000\n"
+                    . "- Pakej retainer: Essential RM10,000/bulan, Premium RM15,000/bulan, Elite RM20,000/bulan\n"
+                    . "- Tenancy dan lease: Tertakluk kepada SRO jika berkaitan\n\n"
+                    . $contact,
+                default => "Untuk rujukan yuran yang lebih tepat, sila nyatakan domain anda (civil/corporate/criminal).\n"
+                    . "Rujukan ringkas:\n"
+                    . "- Civil: RM3,000 - RM250,000\n"
+                    . "- Corporate: RM3,000 - RM250,000\n"
+                    . "- Criminal: RM3,000 - RM250,000\n\n"
+                    . $contact,
+            };
+        }
 
         return match ($category) {
             'civil' => "Civil fee reference (estimated, subject to scope/complexity):\n"

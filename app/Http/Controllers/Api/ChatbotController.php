@@ -24,6 +24,7 @@ class ChatbotController extends Controller
             'category' => ['nullable', 'string', 'in:civil,corporate,criminal,general'],
             'selectedCategory' => ['nullable', 'string', 'in:civil,corporate,criminal,general'],
             'practiceArea' => ['nullable', 'string', 'in:civil,corporate,criminal,general'],
+            'language' => ['nullable', 'string', 'in:english,malay,bm,auto'],
             'sessionId' => ['nullable', 'string', 'max:100'],
             'persist' => ['nullable', 'boolean'],
         ]);
@@ -33,9 +34,14 @@ class ChatbotController extends Controller
             ?? $validated['selectedCategory']
             ?? $validated['practiceArea']
             ?? null;
+        $languageHint = $validated['language'] ?? null;
 
         try {
-            $result = $this->chatbotService->ask($question, is_string($categoryHint) ? $categoryHint : null);
+            $result = $this->chatbotService->ask(
+                $question,
+                is_string($categoryHint) ? $categoryHint : null,
+                is_string($languageHint) ? $languageHint : null
+            );
 
             $sessionId = trim((string) ($validated['sessionId'] ?? ''));
             if ($sessionId === '') {

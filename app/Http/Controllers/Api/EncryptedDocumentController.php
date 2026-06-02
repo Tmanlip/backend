@@ -572,6 +572,7 @@ class EncryptedDocumentController extends Controller
 
         return response()->json([
             'invoice' => $invoice,
+            'type_of_work' => (string) ($document->type_of_work ?? ''),
             'case_financials' => $caseFinancials,
         ], 200);
     }
@@ -645,6 +646,7 @@ class EncryptedDocumentController extends Controller
 
         $oldDocumentAttributes = $document->getAttributes();
         $newPaidAmount = (float) $validated['paid_amount'];
+        $oldPaidAmount = (float) ($invoice->paid_amount ?? 0);
         $expectedAmount = (float) ($invoice->expected_amount ?? 0);
         $taxRate = (float) ($invoice->tax ?? 0);
         $discountRate = (float) ($invoice->discount ?? 0);
@@ -654,6 +656,31 @@ class EncryptedDocumentController extends Controller
             $newPaidAmount + (($newPaidAmount * $taxRate) / 100) - (($newPaidAmount * $discountRate) / 100),
             0.0
         ), 2);
+
+        $stage = strtolower(trim((string) ($invoice->payment_stage ?? 'initial')));
+        if (!in_array($stage, ['initial', 'first', 'second', 'third', 'final'], true)) {
+            $stage = 'initial';
+        }
+
+        $stageSummaries = $this->invoiceProgressService->getStageSummaries((int) ($case->caseId ?? 0));
+        $stageExpectedAmount = (float) ($stageSummaries[$stage]['expected'] ?? $expectedAmount);
+        $stagePaidAmount = (float) ($stageSummaries[$stage]['paid'] ?? 0);
+        $adjustedStagePaidAmount = max($stagePaidAmount - $oldPaidAmount + $newPaidAmount, 0.0);
+        $calculatedPhaseBalance = round(max($stageExpectedAmount - $adjustedStagePaidAmount, 0.0), 2);
+
+        $documentTypeOfWork = trim((string) ($document->type_of_work ?? ''));
+        $expectedTypeOfWorkAmount = $this->resolveExpectedAmountForTypeOfWork($case, $stage, $documentTypeOfWork);
+        $calculatedTypeOfWorkBalance = $calculatedBalance;
+        if ($expectedTypeOfWorkAmount !== null && $expectedTypeOfWorkAmount > 0) {
+            $typePaidAmount = $this->resolvePaidAmountForTypeOfWork(
+                $case,
+                $stage,
+                $documentTypeOfWork,
+                (string) $documentId
+            );
+            $adjustedTypePaidAmount = max($typePaidAmount + $newPaidAmount, 0.0);
+            $calculatedTypeOfWorkBalance = round(max($expectedTypeOfWorkAmount - $adjustedTypePaidAmount, 0.0), 2);
+        }
 
         // Fast path: if the frontend already uploaded the new document, skip PDF generation.
         $newDocumentId = trim((string) ($validated['new_document_id'] ?? ''));
@@ -723,6 +750,7 @@ class EncryptedDocumentController extends Controller
                 return response()->json([
                     'message' => 'Invoice updated successfully. New invoice document linked.',
                     'invoice' => $invoice,
+                    'type_of_work' => (string) ($newDocument->type_of_work ?? $document->type_of_work ?? ''),
                     'case_financials' => $caseFinancials,
                     'case_progress' => (float) $progress,
                     'updated_document' => [
@@ -750,13 +778,15 @@ class EncryptedDocumentController extends Controller
             'case_id' => (int) ($invoice->case_id ?? $case->caseId ?? 0),
             'clientID' => (int) ($invoice->clientID ?? $case->clientID ?? 0),
             'payment_stage' => (string) ($invoice->payment_stage ?? 'initial'),
+            'type_of_work' => (string) ($document->type_of_work ?? $invoice->type_of_work ?? ''),
             'issue_date' => (string) ($invoice->issue_date ?? now()->toDateString()),
             'due_date' => $invoice->due_date,
             'expected_amount' => (float) ($invoice->expected_amount ?? 0),
             'paid_amount' => $newPaidAmount,
             'tax' => (float) ($invoice->tax ?? 0),
             'discount' => (float) ($invoice->discount ?? 0),
-            'balance' => $calculatedBalance,
+            'balance' => $calculatedTypeOfWorkBalance,
+            'phase_balance' => $calculatedPhaseBalance,
             'total_amount' => $calculatedTotalAmount,
             'client_name' => (string) ($invoice->client_name ?? $case->clientName ?? optional($case->client)->name ?? ''),
             'case_title' => (string) ($invoice->case_title ?? $case->title ?? ''),
@@ -883,6 +913,7 @@ class EncryptedDocumentController extends Controller
             return response()->json([
                 'message' => 'Invoice updated, old storage/metadata replaced, and new invoice generated successfully',
                 'invoice' => $invoice,
+                'type_of_work' => (string) ($newDocument->type_of_work ?? $document->type_of_work ?? ''),
                 'case_financials' => $caseFinancials,
                 'case_progress' => (float) $progress,
                 'updated_document' => [
@@ -1236,6 +1267,82 @@ class EncryptedDocumentController extends Controller
             'final' => (float) ($case->balance_final_payment ?? $case->expected_final_payment ?? 0),
             default => 0.0,
         };
+    }
+
+    private function resolveExpectedAmountForTypeOfWork(LawCase $case, string $stage, string $typeOfWork): ?float
+    {
+        $normalizedType = strtolower(trim($typeOfWork));
+        if ($normalizedType === '') {
+            return null;
+        }
+
+        $rawCaseTypeFeeJson = $case->case_type_fee_json;
+        if (is_string($rawCaseTypeFeeJson)) {
+            $decoded = json_decode($rawCaseTypeFeeJson, true);
+            $rawCaseTypeFeeJson = is_array($decoded) ? $decoded : null;
+        }
+
+        if (!is_array($rawCaseTypeFeeJson)) {
+            return null;
+        }
+
+        $stageItems = $rawCaseTypeFeeJson[$stage] ?? null;
+        if (!is_array($stageItems)) {
+            return null;
+        }
+
+        $sum = 0.0;
+        foreach ($stageItems as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $itemType = strtolower(trim((string) ($item['typeOfWork'] ?? $item['type_of_work'] ?? '')));
+            if ($itemType !== $normalizedType) {
+                continue;
+            }
+
+            $sum += (float) ($item['selectedFee'] ?? $item['selected_fee'] ?? 0);
+        }
+
+        return $sum > 0 ? round($sum, 2) : null;
+    }
+
+    private function resolvePaidAmountForTypeOfWork(
+        LawCase $case,
+        string $stage,
+        string $typeOfWork,
+        ?string $excludeDocumentId = null
+    ): float {
+        $normalizedType = strtolower(trim($typeOfWork));
+        if ($normalizedType === '') {
+            return 0.0;
+        }
+
+        $invoiceDocuments = FileMetadata::query()
+            ->where('case_id', (int) ($case->caseId ?? 0))
+            ->where('category', 'invoices')
+            ->where('status', '!=', 'deleted')
+            ->get(['_id', 'invoice_stage', 'type_of_work', 'paid_amount']);
+
+        $paid = 0.0;
+        foreach ($invoiceDocuments as $invoiceDocument) {
+            $documentId = (string) $invoiceDocument->getKey();
+            if ($excludeDocumentId !== null && $excludeDocumentId !== '' && $documentId === $excludeDocumentId) {
+                continue;
+            }
+
+            $documentStage = strtolower(trim((string) ($invoiceDocument->invoice_stage ?? '')));
+            $documentType = strtolower(trim((string) ($invoiceDocument->type_of_work ?? '')));
+
+            if ($documentStage !== $stage || $documentType !== $normalizedType) {
+                continue;
+            }
+
+            $paid += max((float) ($invoiceDocument->paid_amount ?? 0), 0.0);
+        }
+
+        return round(max($paid, 0.0), 2);
     }
 
     private function denyIfArchived(LawCase $case): ?JsonResponse
