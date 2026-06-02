@@ -5,6 +5,12 @@ $allowInsecureMailTls = filter_var(env('MAIL_ALLOW_INSECURE_TLS', false), FILTER
     && filter_var(env('APP_DEBUG', false), FILTER_VALIDATE_BOOL)
     && in_array($appEnvironment, ['local', 'development'], true);
 
+$mailFromName = trim((string) env('MAIL_FROM_NAME', ''));
+
+if ($mailFromName === '' || preg_match('/^\$\{?APP_NAME\}?$/', $mailFromName) === 1) {
+    $mailFromName = (string) env('APP_NAME', 'Example');
+}
+
 return [
 
     /*
@@ -130,7 +136,7 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', 'Example'),
+        'name' => $mailFromName,
     ],
 
 ];
