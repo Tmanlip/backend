@@ -139,20 +139,19 @@ class EncryptedDocumentController extends Controller
             $paidAmount = (float) ($validated['paid_amount'] ?? 0);
         }
 
-        $fileUuid = Str::uuid()->toString();
+        $uploadedFileName = (string) $uploadedFile->getClientOriginalName();
 
         if ($documentStatus === 'pending_approval') {
             // Client-uploaded pending documents are stored locally (not in Azure)
             // until a Lawyer or Admin approves them.
-            $localRelPath = 'pending-documents/' . $fileUuid . '.enc';
+            $localRelPath = 'pending-documents/' . Str::uuid()->toString() . '.enc';
             \Illuminate\Support\Facades\Storage::disk('local')->put($localRelPath, $encrypted['cipherText']);
             $blobPath = 'pending://' . $localRelPath;
         } else {
-            $blobPath = sprintf(
-                'cases/%d/%s/encrypted/%s.enc',
-                $case->caseId,
+            $blobPath = $this->buildEncryptedBlobPath(
+                (int) $case->caseId,
                 $category,
-                $fileUuid
+                $uploadedFileName
             );
             AzureStorage::put($blobPath, $encrypted['cipherText']);
         }
@@ -177,7 +176,7 @@ class EncryptedDocumentController extends Controller
             'category' => $category,
             'uploader_user_id' => (int) $actor->id,
             'blob_path' => $blobPath,
-            'file_name' => $uploadedFile->getClientOriginalName(),
+            'file_name' => $uploadedFileName,
             'mime_type' => (string) $uploadedFile->getMimeType(),
             'size_bytes' => (int) $uploadedFile->getSize(),
             'content_hash_sha256' => $contentHash,
@@ -359,11 +358,10 @@ class EncryptedDocumentController extends Controller
                     ], 404);
                 }
 
-                $azureBlobPath = sprintf(
-                    'cases/%d/%s/encrypted/%s.enc',
+                $azureBlobPath = $this->buildEncryptedBlobPath(
                     (int) $document->case_id,
                     (string) $document->category,
-                    Str::uuid()->toString()
+                    (string) ($document->file_name ?? 'document')
                 );
 
                 try {
@@ -807,15 +805,6 @@ class EncryptedDocumentController extends Controller
 
             $dek = $this->crypto->generateDek();
             $encrypted = $this->crypto->encrypt($plainInvoiceContent, $dek);
-            $newBlobPath = sprintf(
-                'cases/%d/invoices/encrypted/%s.enc',
-                (int) $case->caseId,
-                Str::uuid()->toString()
-            );
-
-            AzureStorage::put($newBlobPath, $encrypted['cipherText']);
-            $newBlobUploaded = true;
-
             $requestedRecipientIds = collect($document->recipients ?? [])
                 ->filter(fn ($entry) => (bool) ($entry['is_active'] ?? false) === true)
                 ->pluck('recipient_user_id')
@@ -851,6 +840,15 @@ class EncryptedDocumentController extends Controller
                 $sanitizedBaseFileName = 'invoice';
             }
             $newFileName = $sanitizedBaseFileName . '.pdf';
+
+            $newBlobPath = $this->buildEncryptedBlobPath(
+                (int) $case->caseId,
+                'invoices',
+                $newFileName
+            );
+
+            AzureStorage::put($newBlobPath, $encrypted['cipherText']);
+            $newBlobUploaded = true;
 
             $newDocument = FileMetadata::create([
                 'type' => 'encrypted_document',
@@ -1360,6 +1358,54 @@ class EncryptedDocumentController extends Controller
         }
 
         return null;
+    }
+
+    private function buildEncryptedBlobPath(int $caseId, string $category, string $fileName): string
+    {
+        $safeFileName = $this->sanitizeStorageFileName($fileName, 'document');
+        $basePath = sprintf('cases/%d/%s/encrypted/', $caseId, $category);
+        $candidate = $basePath . $safeFileName . '.enc';
+
+        if (!AzureStorage::exists($candidate)) {
+            return $candidate;
+        }
+
+        $extension = pathinfo($safeFileName, PATHINFO_EXTENSION);
+        $stem = pathinfo($safeFileName, PATHINFO_FILENAME);
+        if ($stem === '') {
+            $stem = 'document';
+        }
+
+        do {
+            $suffix = strtolower(Str::random(6));
+            $resolvedFileName = $stem . '-' . $suffix . ($extension !== '' ? '.' . $extension : '');
+            $candidate = $basePath . $resolvedFileName . '.enc';
+        } while (AzureStorage::exists($candidate));
+
+        return $candidate;
+    }
+
+    private function sanitizeStorageFileName(string $fileName, string $fallbackStem = 'document'): string
+    {
+        $baseName = basename(trim($fileName));
+        if ($baseName === '' || $baseName === '.' || $baseName === '..') {
+            return $fallbackStem;
+        }
+
+        $extension = pathinfo($baseName, PATHINFO_EXTENSION);
+        $stem = pathinfo($baseName, PATHINFO_FILENAME);
+
+        $sanitizedStem = preg_replace('/[^A-Za-z0-9._-]/', '_', $stem) ?? $fallbackStem;
+        $sanitizedStem = trim($sanitizedStem, " \t\n\r\0\x0B._-");
+        if ($sanitizedStem === '') {
+            $sanitizedStem = $fallbackStem;
+        }
+
+        $sanitizedExtension = preg_replace('/[^A-Za-z0-9]/', '', $extension) ?? '';
+
+        return $sanitizedExtension !== ''
+            ? $sanitizedStem . '.' . strtolower($sanitizedExtension)
+            : $sanitizedStem;
     }
 
     private function canAccessDocument(User $actor, FileMetadata $document): bool

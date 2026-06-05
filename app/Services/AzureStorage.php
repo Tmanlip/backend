@@ -101,6 +101,18 @@ class AzureStorage
         }
     }
 
+    public static function exists(string $blobName): bool
+    {
+        $client = self::client();
+
+        try {
+            $client->getBlobProperties(self::container(), $blobName);
+            return true;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
     public static function delete(string $blobName): void
     {
         $client = self::client();
