@@ -16,7 +16,7 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         // ----------------------------
-        // Create 6 users with AES + RSA keys
+        // Create 7 users with AES + RSA keys
         // ----------------------------
         $users = [
             // Admins
@@ -45,6 +45,19 @@ class UserSeeder extends Seeder
                 'HomeAddress' => 'Admin Street 2',
                 'gender' => 'Female',
                 'maritalStatus' => 'Married',
+            ],
+            [
+                'name' => 'Admin Staff One',
+                'email' => 'adminstaff1@example.com',
+                'username' => 'adminstaff1',
+                'password' => 'password123',
+                'role' => 'adminstaff',
+                'age' => 31,
+                'ICNumber' => '900212-02-2121',
+                'phoneNumber' => '0122121212',
+                'HomeAddress' => 'Admin Staff Street 1',
+                'gender' => 'Male',
+                'maritalStatus' => 'Single',
             ],
 
             // Lawyers

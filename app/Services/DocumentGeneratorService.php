@@ -218,6 +218,7 @@ class DocumentGeneratorService
             $dueDateRaw = trim((string) ($v['due_date'] ?? ''));
             $dueDateLabel = $choose('Due', 'Tarikh Akhir');
             $dueDate = $esc($dueDateRaw !== '' ? $dueDateLabel . ': ' . $dueDateRaw : '-');
+            $dueDateValue = $esc($dueDateRaw !== '' ? $dueDateRaw : '-');
             $expected   = $fmt($v['expected_amount'] ?? '');
             $paid       = $fmt($v['paid_amount'] ?? '');
             $tax        = is_numeric($v['tax'] ?? '') && (string)($v['tax'] ?? '') !== '' ? $esc($v['tax']) . '%' : '-';
@@ -264,6 +265,7 @@ class DocumentGeneratorService
                 '{{issuedLabel}}' => $issuedLabel,
                 '{{issueDate}}' => $issueDate,
                 '{{dueDate}}' => $dueDate,
+                '{{dueDateValue}}' => $dueDateValue,
                 '{{billedToLabel}}' => $billedToLabel,
                 '{{clientName}}' => $clientName,
                 '{{matterLabel}}' => $matterLabel,

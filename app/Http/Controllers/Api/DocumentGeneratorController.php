@@ -165,7 +165,7 @@ class DocumentGeneratorController extends Controller
             $discountPercentForTotal = (float) ($formData['discount'] ?? 0);
             $formData['total_amount'] = $paidAmountForTotal
                 + (($paidAmountForTotal * $taxPercentForTotal) / 100)
-                + (($paidAmountForTotal * $discountPercentForTotal) / 100);
+                - (($paidAmountForTotal * $discountPercentForTotal) / 100);
         }
 
         // Backward compatibility: accept legacy pdf_path input and map to blob_path.
@@ -336,7 +336,7 @@ class DocumentGeneratorController extends Controller
             $discountPercentForTotal = (float) ($formData['discount'] ?? 0);
             $formData['total_amount'] = $paidAmountForTotal
                 + (($paidAmountForTotal * $taxPercentForTotal) / 100)
-                + (($paidAmountForTotal * $discountPercentForTotal) / 100);
+                - (($paidAmountForTotal * $discountPercentForTotal) / 100);
         }
 
         if (empty($formData['blob_path']) && !empty($formData['pdf_path'])) {

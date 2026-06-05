@@ -27,6 +27,13 @@
     .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.9px; color: #6b7280; margin-bottom: 5px; }
     .value { font-size: 13px; font-weight: bold; color: #111827; }
     .value-sub { font-size: 11px; color: #374151; }
+    .invoice-data { border: 1px solid #6b7280; border-collapse: collapse; }
+    .invoice-data td { border: 1px solid #6b7280; padding: 10px 12px; }
+    .invoice-data .left { width: 42%; color: #374151; font-weight: 600; }
+    .invoice-data .right { width: 58%; color: #1f2937; }
+    .invoice-data tr.head td { background: #f3f6fb; border-top: none; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: bold; color: #6b7280; }
+    .invoice-data tr.alt td { background: #f9fbfe; }
+    .invoice-data tr.total td { background: #111827; color: #ffffff; font-weight: bold; border-top: 1px solid #111827; }
     .line td { padding: 0 18px; }
     .line hr { border: none; border-top: 1px solid #e5eaf2; margin: 6px 0 12px 0; }
     .amounts { border: 1px solid #e5eaf2; }
@@ -65,39 +72,23 @@
             </td>
         </tr>
 
-        <tr class="section">
-            <td>
-                <div class="label">{{billedToLabel}}</div>
-                <div class="value">{{clientName}}</div>
-            </td>
-            <td>
-                <div class="label">{{matterLabel}}</div>
-                <div class="value-sub">{{caseTitle}}</div>
-            </td>
-        </tr>
-
-        <tr class="section">
-            <td colspan="2" style="padding-top: 0;">
-                <div class="label">{{typeOfWorkLabel}}</div>
-                <div class="value-sub">{{typeOfWork}}</div>
-            </td>
-        </tr>
-
-        <tr class="line">
-            <td colspan="2"><hr></td>
-        </tr>
-
         <tr>
-            <td colspan="2" style="padding: 0 18px 10px 18px;">
-                <table class="amounts">
+            <td colspan="2" style="padding: 12px 18px 10px 18px;">
+                <table class="invoice-data">
                     <tr class="head"><td class="left">Description</td><td class="right">Amount</td></tr>
-                    <tr class="alt"><td class="left">{{expectedAmountLabel}}</td><td class="right">{{expected}}</td></tr>
-                    <tr><td class="left">{{paidAmountLabel}}</td><td class="right">{{paid}}</td></tr>
-                    <tr class="alt"><td class="left">{{typeOfWorkBalanceLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
-                    <tr><td class="left">{{phaseBalanceLabel}}</td><td class="right">{{phaseBalance}}</td></tr>
-                    <tr class="alt"><td class="left">{{taxLabel}}</td><td class="right">{{tax}}</td></tr>
-                    <tr><td class="left">{{discountLabel}}</td><td class="right">{{discount}}</td></tr>
-                    <tr class="alt"><td class="left">{{totalLabel}}</td><td class="right">{{total}}</td></tr>
+                    <tr><td class="left">Invoice Number</td><td class="right">#{{invoiceNum}}</td></tr>
+                    <tr class="alt"><td class="left">{{issuedLabel}}</td><td class="right">{{issueDate}}</td></tr>
+                    <tr><td class="left">Due</td><td class="right">{{dueDateValue}}</td></tr>
+                    <tr class="alt"><td class="left">{{billedToLabel}}</td><td class="right">{{clientName}}</td></tr>
+                    <tr><td class="left">{{matterLabel}}</td><td class="right">{{caseTitle}}</td></tr>
+                    <tr class="alt"><td class="left">{{typeOfWorkLabel}}</td><td class="right">{{typeOfWork}}</td></tr>
+                    <tr><td class="left">{{expectedAmountLabel}}</td><td class="right">{{expected}}</td></tr>
+                    <tr class="alt"><td class="left">{{paidAmountLabel}}</td><td class="right">{{paid}}</td></tr>
+                    <tr><td class="left">{{typeOfWorkBalanceLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
+                    <tr class="alt"><td class="left">{{phaseBalanceLabel}}</td><td class="right">{{phaseBalance}}</td></tr>
+                    <tr><td class="left">{{taxLabel}}</td><td class="right">{{tax}}</td></tr>
+                    <tr class="alt"><td class="left">{{discountLabel}}</td><td class="right">{{discount}}</td></tr>
+                    <tr><td class="left">{{totalLabel}}</td><td class="right">{{total}}</td></tr>
                     <tr class="total"><td class="left">{{amountDueLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
                 </table>
             </td>

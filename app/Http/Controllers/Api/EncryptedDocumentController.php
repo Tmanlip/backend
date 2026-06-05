@@ -843,8 +843,14 @@ class EncryptedDocumentController extends Controller
                 ];
             }
 
-            $baseFileName = pathinfo((string) ($document->file_name ?: ($invoice->invoice_number ?? 'invoice')), PATHINFO_FILENAME);
-            $newFileName = $baseFileName . '-updated-' . now()->format('YmdHis') . '.pdf';
+            $baseFileName = (string) ($invoice->invoice_number
+                ?: pathinfo((string) ($document->file_name ?: 'invoice'), PATHINFO_FILENAME));
+            $sanitizedBaseFileName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseFileName) ?? 'invoice';
+            $sanitizedBaseFileName = trim($sanitizedBaseFileName, " \t\n\r\0\x0B._-");
+            if ($sanitizedBaseFileName === '') {
+                $sanitizedBaseFileName = 'invoice';
+            }
+            $newFileName = $sanitizedBaseFileName . '.pdf';
 
             $newDocument = FileMetadata::create([
                 'type' => 'encrypted_document',
