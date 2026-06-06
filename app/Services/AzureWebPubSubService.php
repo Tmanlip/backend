@@ -36,7 +36,9 @@ class AzureWebPubSubService
             $claims['role'] = array_values($roles);
         }
 
-        // Azure in this environment validates signatures when the key is used as-is.
+        // Try signing with the raw access key first (most Azure Web PubSub environments).
+        // If the key is base64-encoded bytes (some provisioning paths), we fall back to
+        // the decoded form — consistent with the server-side publishToUser fallback.
         $token = $this->createJwtToken(
             audience: $clientAudience,
             accessKey: $parts['accessKey'],
@@ -44,6 +46,39 @@ class AzureWebPubSubService
             ttlSeconds: $ttlSeconds,
             decodeAccessKey: false,
         );
+
+        // Validate the token can be used: attempt a lightweight REST probe so we detect
+        // auth failures before handing the URL to the client. On 401 regenerate with
+        // base64-decoded key (mirrors the publishToUser fallback pattern).
+        try {
+            $probeUrl = sprintf(
+                '%sapi/hubs/%s?api-version=%s',
+                $parts['endpoint'],
+                rawurlencode($hub),
+                rawurlencode((string) config('services.webpubsub.api_version', '2024-01-01'))
+            );
+            $probeAudience = sprintf('%sapi/hubs/%s', rtrim($parts['endpoint'], '/') . '/', rawurlencode($hub));
+            $serverToken = $this->createJwtToken(
+                audience: $probeAudience,
+                accessKey: $parts['accessKey'],
+                claims: ['role' => ['webpubsub.sendToUser']],
+                ttlSeconds: 120,
+                decodeAccessKey: false,
+            );
+            $probe = \Illuminate\Support\Facades\Http::withToken($serverToken)->get($probeUrl);
+            if ($probe->status() === 401) {
+                // Raw key rejected — regenerate client token with decoded key.
+                $token = $this->createJwtToken(
+                    audience: $clientAudience,
+                    accessKey: $parts['accessKey'],
+                    claims: $claims,
+                    ttlSeconds: $ttlSeconds,
+                    decodeAccessKey: true,
+                );
+            }
+        } catch (\Throwable) {
+            // Probe failed for a non-auth reason (network, etc.) — proceed with original token.
+        }
 
         $host = parse_url($parts['endpoint'], PHP_URL_HOST);
         $scheme = str_starts_with($parts['endpoint'], 'https://') ? 'wss' : 'ws';
@@ -133,10 +168,16 @@ class AzureWebPubSubService
 
     private function hub(): string
     {
-        $configured = (string) config('services.webpubsub.hub', 'aslawnotifications');
+        $configured = trim((string) config('services.webpubsub.hub', 'aslawnotifications'));
 
-        // REST :generateToken requires hub name pattern: ^[A-Za-z][A-Za-z0-9_`,.[\]]{0,127}$
-        $normalized = preg_replace('/[^A-Za-z0-9_`,.\[\]]/', '_', $configured) ?? 'aslawnotifications';
+        if ($configured === '') {
+            return 'aslawnotifications';
+        }
+
+        // Hyphens are valid in Azure Web PubSub hub names when connecting via the client
+        // WebSocket endpoint with manually generated tokens (this service does not use the
+        // REST :generateToken endpoint that enforced a stricter pattern).
+        $normalized = preg_replace('/[^A-Za-z0-9\-_`,.\[\]]/', '_', $configured) ?? 'aslawnotifications';
 
         if ($normalized === '') {
             return 'aslawnotifications';

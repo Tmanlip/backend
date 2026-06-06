@@ -1,0 +1,27 @@
+[Unit]
+Description=ASLAW Laravel Queue Worker
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/aslaw-backend
+ExecStart=/usr/bin/php /var/www/aslaw-backend/artisan queue:work --sleep=3 --tries=1 --timeout=120
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=always
+RestartSec=5
+
+# Runtime hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+# Keep logs in journalctl
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
