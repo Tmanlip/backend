@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Dompdf\Dompdf;
+use Dompdf\Options;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
@@ -166,8 +168,32 @@ class DocumentGeneratorService
         // without depending on Dompdf/GD.
         $html = $this->buildInvoiceHtmlFromVariables($v);
 
-        $docx = $this->createDocxFromHtml($html, 'invoice-template.docx');
-        $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+        $pdfBuffer = null;
+        $conversionErrorMessage = null;
+
+        try {
+            $docx = $this->createDocxFromHtml($html, 'invoice-template.docx');
+            $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+        } catch (\Throwable $conversionError) {
+            $conversionErrorMessage = $conversionError->getMessage();
+
+            logger()->warning('Invoice PDF LibreOffice conversion failed, falling back to Dompdf.', [
+                'message' => $conversionErrorMessage,
+                'exception' => $conversionError::class,
+            ]);
+        }
+
+        if (!is_string($pdfBuffer) || $pdfBuffer === '') {
+            try {
+                $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
+            } catch (\Throwable $fallbackError) {
+                throw new RuntimeException(
+                    'Unable to generate invoice PDF. LibreOffice conversion failed'
+                    . ($conversionErrorMessage ? ': ' . $conversionErrorMessage : '.')
+                    . ' Dompdf fallback failed: ' . $fallbackError->getMessage()
+                );
+            }
+        }
 
         $safeNum = preg_replace('/[^A-Za-z0-9\-_]/', '_', (string)($v['invoice_number'] ?? 'invoice'));
 
@@ -317,6 +343,26 @@ class DocumentGeneratorService
         }
 
         return 'data:image/png;base64,' . base64_encode($contents);
+    }
+
+    private function renderInvoiceHtmlToPdf(string $html): string
+    {
+        $options = new Options();
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('isRemoteEnabled', true);
+        $options->set('defaultFont', 'DejaVu Sans');
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        $output = $dompdf->output();
+        if (!is_string($output) || $output === '') {
+            throw new RuntimeException('Dompdf returned an empty PDF output.');
+        }
+
+        return $output;
     }
 
     private function resolveInvoiceLanguage(array $variables): string
