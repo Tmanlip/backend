@@ -9,10 +9,13 @@ use App\Services\InvoiceProgressService;
 use App\Services\DocumentGeneratorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 class DocumentGeneratorController extends Controller
 {
+    private const TEMPLATE_VISIBILITY_FILE = 'document-generator/template-visibility.json';
+
     public function __construct(
         private readonly DocumentGeneratorService $service,
         private readonly InvoiceProgressService $invoiceProgressService
@@ -26,6 +29,52 @@ class DocumentGeneratorController extends Controller
         $status = ($payload['status'] ?? 'ok') === 'ok' ? Response::HTTP_OK : Response::HTTP_SERVICE_UNAVAILABLE;
 
         return response()->json($payload, $status);
+    }
+
+    public function getTemplateVisibility(): JsonResponse
+    {
+        return response()->json([
+            'visibility' => $this->readTemplateVisibilityMap(),
+        ]);
+    }
+
+    public function updateTemplateVisibility(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        $role = strtolower((string) ($actor?->role ?? ''));
+
+        if (!in_array($role, ['admin'], true)) {
+            return response()->json(['message' => 'Forbidden'], Response::HTTP_FORBIDDEN);
+        }
+
+        $validated = $request->validate([
+            'visibility' => ['required', 'array'],
+            'visibility.*' => ['boolean'],
+        ]);
+
+        $rawVisibility = (array) ($validated['visibility'] ?? []);
+        $normalizedVisibility = [];
+
+        foreach ($rawVisibility as $templateId => $isVisible) {
+            $id = trim((string) $templateId);
+            if ($id === '') {
+                continue;
+            }
+
+            $normalizedVisibility[$id] = (bool) $isVisible;
+        }
+
+        ksort($normalizedVisibility);
+
+        Storage::disk('local')->put(
+            self::TEMPLATE_VISIBILITY_FILE,
+            (string) json_encode($normalizedVisibility, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+
+        return response()->json([
+            'message' => 'Template visibility updated successfully.',
+            'visibility' => $normalizedVisibility,
+        ]);
     }
 
     public function ask(Request $request): JsonResponse
@@ -47,6 +96,36 @@ class DocumentGeneratorController extends Controller
                 'error' => $error->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    private function readTemplateVisibilityMap(): array
+    {
+        if (!Storage::disk('local')->exists(self::TEMPLATE_VISIBILITY_FILE)) {
+            return [];
+        }
+
+        $contents = (string) Storage::disk('local')->get(self::TEMPLATE_VISIBILITY_FILE);
+        if ($contents === '') {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $visibility = [];
+
+        foreach ($decoded as $templateId => $isVisible) {
+            $id = trim((string) $templateId);
+            if ($id === '') {
+                continue;
+            }
+
+            $visibility[$id] = (bool) $isVisible;
+        }
+
+        return $visibility;
     }
 
     public function generateLodDocx(Request $request)

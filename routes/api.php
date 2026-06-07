@@ -38,6 +38,7 @@ Route::middleware('throttle:api')->group(function () {
 
     Route::prefix('/document-generator')->group(function () {
         Route::get('/health', [DocumentGeneratorController::class, 'health']);
+        Route::get('/templates/visibility', [DocumentGeneratorController::class, 'getTemplateVisibility']);
         Route::post('/generate', [DocumentGeneratorController::class, 'ask']);
         Route::post('/generate-lod-docx', [DocumentGeneratorController::class, 'generateLodDocx']);
         Route::post('/generate-lod-pdf', [DocumentGeneratorController::class, 'generateLodPdf']);
@@ -98,6 +99,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', CheckArchivedUser::class])->g
     Route::get('/files', [AzureController::class, 'list']);
     Route::delete('/files', [AzureController::class, 'deleteByQuery']);
     Route::apiResource('invoices', InvoiceController::class);
+
+    Route::put('/document-generator/templates/visibility', [DocumentGeneratorController::class, 'updateTemplateVisibility']);
 
     // Encrypted document APIs
     Route::post('/encrypted-documents/upload', [EncryptedDocumentController::class, 'upload']);
