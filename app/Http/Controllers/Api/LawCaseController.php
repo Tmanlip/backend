@@ -205,6 +205,14 @@ class LawCaseController extends Controller
         }
 
         $storageBase = storage_path('app/chatbot/operations-playbook-excel');
+        $resourcesBase = base_path('resources/chatbot/operations-playbook-excel');
+
+        $paths[] = [
+            $resourcesBase . '/TypeOfWork_EstimationFees.json',
+            $resourcesBase . '/TypeOfWork_EstimationFees.csv',
+            $resourcesBase . '/TypeOfWork_EstimationFees.ts',
+        ];
+
         $paths[] = [
             $storageBase . '/TypeOfWork_EstimationFees.json',
             $storageBase . '/TypeOfWork_EstimationFees.csv',
