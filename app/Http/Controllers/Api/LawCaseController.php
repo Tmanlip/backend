@@ -26,6 +26,24 @@ class LawCaseController extends Controller
         'Criminal' => 'Criminal',
     ];
 
+    private const STATIC_TYPE_OF_WORK_FALLBACK = [
+        'Civil' => [
+            ['typeOfWork' => 'Case Consultation', 'rangeMin' => 800, 'rangeMax' => 2000],
+            ['typeOfWork' => 'Document Preparation', 'rangeMin' => 1200, 'rangeMax' => 3200],
+            ['typeOfWork' => 'Court Representation', 'rangeMin' => 2500, 'rangeMax' => 7000],
+        ],
+        'Corporate' => [
+            ['typeOfWork' => 'Corporate Advisory', 'rangeMin' => 1500, 'rangeMax' => 4500],
+            ['typeOfWork' => 'Contract Drafting', 'rangeMin' => 1800, 'rangeMax' => 5000],
+            ['typeOfWork' => 'Regulatory Compliance', 'rangeMin' => 2200, 'rangeMax' => 6000],
+        ],
+        'Criminal' => [
+            ['typeOfWork' => 'Initial Legal Advice', 'rangeMin' => 1000, 'rangeMax' => 3000],
+            ['typeOfWork' => 'Bail Application', 'rangeMin' => 1800, 'rangeMax' => 5000],
+            ['typeOfWork' => 'Trial Representation', 'rangeMin' => 3000, 'rangeMax' => 9000],
+        ],
+    ];
+
     public function __construct(
         private readonly CaseNotificationService $caseNotificationService,
         private readonly InvoiceProgressService $invoiceProgressService,
@@ -141,6 +159,170 @@ class LawCaseController extends Controller
         ];
     }
 
+    private function formatCurrencyAmount(float $value): string
+    {
+        $formatted = number_format($value, 2, '.', '');
+        $formatted = rtrim(rtrim($formatted, '0'), '.');
+
+        return $formatted === '' ? '0' : $formatted;
+    }
+
+    private function formatRangeLabel(float $rangeMin, float $rangeMax): string
+    {
+        return sprintf(
+            'RM %s - RM %s',
+            $this->formatCurrencyAmount($rangeMin),
+            $this->formatCurrencyAmount($rangeMax)
+        );
+    }
+
+    private function normalizeOptionRow(
+        string $practiceArea,
+        string $typeOfWork,
+        ?string $estimationFeesRange,
+        ?float $rangeMin,
+        ?float $rangeMax,
+        ?float $estimatedAmount = null
+    ): ?array {
+        $cleanPracticeArea = trim($practiceArea);
+        $cleanTypeOfWork = trim($typeOfWork);
+
+        if ($cleanPracticeArea === '' || $cleanTypeOfWork === '') {
+            return null;
+        }
+
+        $min = is_numeric((string) $rangeMin) ? round((float) $rangeMin, 2) : null;
+        $max = is_numeric((string) $rangeMax) ? round((float) $rangeMax, 2) : null;
+
+        if ($min === null || $max === null || $min < 0 || $max < 0 || $min > $max) {
+            return null;
+        }
+
+        $label = trim((string) ($estimationFeesRange ?? ''));
+        if ($label === '') {
+            $label = $this->formatRangeLabel($min, $max);
+        }
+
+        $amount = is_numeric((string) $estimatedAmount)
+            ? round((float) $estimatedAmount, 2)
+            : round(($min + $max) / 2, 2);
+
+        return [
+            'practiceArea' => $cleanPracticeArea,
+            'typeOfWork' => $cleanTypeOfWork,
+            'estimationFeesRange' => $label,
+            'estimatedAmount' => $amount,
+            'rangeMin' => $min,
+            'rangeMax' => $max,
+        ];
+    }
+
+    private function loadTypeOfWorkOptionsFromCases(string $practiceArea): array
+    {
+        $matchingCaseTypes = [];
+        foreach (self::CASE_TYPE_TO_PRACTICE_AREA as $caseType => $mappedPracticeArea) {
+            if ($mappedPracticeArea === $practiceArea) {
+                $matchingCaseTypes[] = $caseType;
+            }
+        }
+
+        if (empty($matchingCaseTypes)) {
+            return [];
+        }
+
+        $cases = LawCase::query()
+            ->whereIn('caseType', $matchingCaseTypes)
+            ->whereNotNull('case_type_fee_json')
+            ->orderByDesc('updated_at')
+            ->limit(300)
+            ->get(['case_type_fee_json']);
+
+        $result = [];
+        $seen = [];
+        $stages = ['initial', 'first', 'second', 'third', 'final'];
+
+        foreach ($cases as $case) {
+            $feeJson = $case->case_type_fee_json;
+            if (is_string($feeJson)) {
+                $decoded = json_decode($feeJson, true);
+                $feeJson = is_array($decoded) ? $decoded : [];
+            }
+
+            if (!is_array($feeJson)) {
+                continue;
+            }
+
+            foreach ($stages as $stage) {
+                $items = $feeJson[$stage] ?? [];
+                if (!is_array($items)) {
+                    continue;
+                }
+
+                foreach ($items as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+
+                    $typeOfWork = trim((string) ($item['typeOfWork'] ?? $item['type_of_work'] ?? ''));
+                    $rangeMin = $item['rangeMin'] ?? $item['range_min'] ?? null;
+                    $rangeMax = $item['rangeMax'] ?? $item['range_max'] ?? null;
+                    $estimatedAmount = $item['selectedFee'] ?? $item['selected_fee'] ?? null;
+                    $rangeLabel = trim((string) ($item['estimationFeesRange'] ?? $item['estimation_fees_range'] ?? ''));
+
+                    $normalized = $this->normalizeOptionRow(
+                        $practiceArea,
+                        $typeOfWork,
+                        $rangeLabel,
+                        is_numeric((string) $rangeMin) ? (float) $rangeMin : null,
+                        is_numeric((string) $rangeMax) ? (float) $rangeMax : null,
+                        is_numeric((string) $estimatedAmount) ? (float) $estimatedAmount : null
+                    );
+
+                    if ($normalized === null) {
+                        continue;
+                    }
+
+                    $dedupeKey = strtolower($normalized['typeOfWork'] . '|' . $normalized['estimationFeesRange']);
+                    if (isset($seen[$dedupeKey])) {
+                        continue;
+                    }
+
+                    $seen[$dedupeKey] = true;
+                    $result[] = $normalized;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    private function buildStaticTypeOfWorkFallback(string $practiceArea): array
+    {
+        $source = self::STATIC_TYPE_OF_WORK_FALLBACK[$practiceArea] ?? [];
+        $result = [];
+
+        foreach ($source as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $normalized = $this->normalizeOptionRow(
+                $practiceArea,
+                (string) ($item['typeOfWork'] ?? ''),
+                null,
+                isset($item['rangeMin']) ? (float) $item['rangeMin'] : null,
+                isset($item['rangeMax']) ? (float) $item['rangeMax'] : null,
+                null
+            );
+
+            if ($normalized !== null) {
+                $result[] = $normalized;
+            }
+        }
+
+        return $result;
+    }
+
     public function typeOfWorkOptions(Request $request): JsonResponse
     {
         try {
@@ -220,6 +402,14 @@ class LawCaseController extends Controller
                     'rangeMin' => $range['rangeMin'],
                     'rangeMax' => $range['rangeMax'],
                 ];
+            }
+
+            if (empty($result)) {
+                $result = $this->loadTypeOfWorkOptionsFromCases($practiceArea);
+            }
+
+            if (empty($result)) {
+                $result = $this->buildStaticTypeOfWorkFallback($practiceArea);
             }
 
             return response()->json([

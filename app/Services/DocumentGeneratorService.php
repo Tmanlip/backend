@@ -1655,6 +1655,7 @@ XML;
             'ImageUploadDetails' => '',
             'AdditionalPublicationDetails' => '',
             'ReshareDetails' => '',
+            'CaseDescription' => '',
             'Signed' => '',
             'SignedImageDataUrl' => '',
             'LegalClient' => '',
@@ -1723,6 +1724,10 @@ XML;
             $variables[$placeholderLabel] = sprintf('[%s] %s', $isChecked ? 'x' : ' ', $label);
         }
 
+        if (trim((string) $variables['CaseDescription']) === '') {
+            $variables['CaseDescription'] = trim((string) ($variables['BackgroundFacts'] ?? ''));
+        }
+
         if (is_string($variables['Signed'] ?? null) && preg_match('~^data:image/~i', (string) $variables['Signed'])) {
             // Avoid leaking raw data URLs into generated DOCX/XML text.
             $variables['Signed'] = '';
@@ -1743,6 +1748,8 @@ XML;
             'WritCaseNoLabel' => 'GUAMAN NO:',
             'WritCaseNumber' => '',
             'WritCaseYear' => (string) date('Y'),
+            'CaseNoReference' => '',
+            'CaseYear' => (string) date('Y'),
             'PlaintiffName' => '',
             'PlaintiffNRIC' => '',
             'Defendant1Name' => '',
@@ -1751,14 +1758,22 @@ XML;
             'Defendant2NRIC' => '',
             'Defendant1Address' => '',
             'Defendant2Address' => '',
+            'Place' => '',
+            'CourtPlace2' => '',
             'AppearanceDays' => '14',
+            'AppearanceDaysWord' => 'empat belas',
             'RegistrarCourt' => 'Mahkamah Majistret Shah Alam',
             'WitnessDay' => '',
             'WitnessMonth' => '',
             'WitnessYear' => (string) date('Y'),
             'PlaintiffSolicitor' => '',
+            'LawyerName' => '',
+            'OpponentLawyer' => '',
             'PlaintiffFirmName' => 'Tetuan Adnan Sharida & Associates',
             'PlaintiffFirmAddress' => '',
+            'FirmAddress' => '',
+            'DamagesAmount' => '40,200.00',
+            'SDamagesText' => 'Gantirugi Khas',
             'GeneralDamagesAmount' => '40,200.00',
             'SpecialDamagesText' => 'Gantirugi Khas',
             'InterestRate' => '5',
@@ -1767,6 +1782,7 @@ XML;
             'OtherReliefText' => 'Apa-apa relif yang difikirkan sesuai dan adil oleh mahkamah',
             'InitialCostsAmount' => '225.00',
             'SubstitutedServiceCostsAmount' => '60.00',
+            'PostagePrice' => '',
             'ServiceOfficer' => '',
             'ServiceMethod' => '',
             'ServiceKnownBy' => '',
@@ -1826,6 +1842,9 @@ XML;
         // New -> legacy mapping
         $variables['CaseNumber'] = $variables['CaseNumber'] ?: $variables['WritCaseNumber'];
         $variables['CaseYear'] = $variables['CaseYear'] ?: $variables['WritCaseYear'];
+        $variables['CaseNoReference'] = $variables['CaseNoReference'] ?: $variables['WritCaseNumber'];
+        $variables['WritCaseNumber'] = $variables['WritCaseNumber'] ?: $variables['CaseNoReference'];
+        $variables['WritCaseYear'] = $variables['WritCaseYear'] ?: $variables['CaseYear'];
         $variables['DefendantName'] = $variables['DefendantName'] ?: $variables['Defendant1Name'];
         $variables['DefendantNRIC'] = $variables['DefendantNRIC'] ?: $variables['Defendant1NRIC'];
         if ($variables['DefendantAddressLine1'] === '' && $variables['Defendant1Address'] !== '') {
@@ -1836,6 +1855,14 @@ XML;
         }
         $variables['LawFirmName'] = $variables['LawFirmName'] ?: $variables['PlaintiffFirmName'];
         $variables['LawFirmAddress'] = $variables['LawFirmAddress'] ?: ($variables['PlaintiffFirmAddress'] ?: $variables['FilingFirmAddress']);
+        $variables['FirmAddress'] = $variables['FirmAddress'] ?: ($variables['FilingFirmAddress'] ?: $variables['PlaintiffFirmAddress']);
+        $variables['PlaintiffFirmAddress'] = $variables['PlaintiffFirmAddress'] ?: ($variables['FirmAddress'] ?: $variables['FilingFirmAddress']);
+        $variables['LawyerName'] = $variables['LawyerName'] ?: $variables['PlaintiffSolicitor'];
+        $variables['PlaintiffSolicitor'] = $variables['PlaintiffSolicitor'] ?: $variables['LawyerName'];
+        $variables['DamagesAmount'] = $variables['DamagesAmount'] ?: ($variables['GeneralDamagesAmount'] ?: $variables['ClaimAmount']);
+        $variables['SDamagesText'] = $variables['SDamagesText'] ?: $variables['SpecialDamagesText'];
+        $variables['GeneralDamagesAmount'] = $variables['GeneralDamagesAmount'] ?: $variables['DamagesAmount'];
+        $variables['SpecialDamagesText'] = $variables['SpecialDamagesText'] ?: $variables['SDamagesText'];
         $variables['LawyerPhone'] = $variables['LawyerPhone'] ?: $variables['FilingFirmTel'];
         $variables['LawyerEmail'] = $variables['LawyerEmail'] ?: $variables['FilingFirmEmail'];
         $variables['ReferenceCode'] = $variables['ReferenceCode'] ?: $variables['FilingReference'];
@@ -1843,6 +1870,20 @@ XML;
         $variables['ServiceLocation'] = $variables['ServiceLocation'] ?: $variables['ServiceAt'];
         $variables['ServiceDate'] = $variables['ServiceDate'] ?: $variables['ServiceOnDate'];
         $variables['WitnessedCourt'] = $variables['WitnessedCourt'] ?: $variables['RegistrarCourt'];
+        $variables['Place'] = $variables['Place'] ?: $variables['CourtLocation'];
+        $variables['CourtPlace2'] = $variables['CourtPlace2'] ?: $variables['Place'];
+
+        if (trim((string) $variables['AppearanceDaysWord']) === '') {
+            $appearanceValue = (int) preg_replace('/\D+/', '', (string) $variables['AppearanceDays']);
+            $appearanceWordMap = [
+                1 => 'satu', 2 => 'dua', 3 => 'tiga', 4 => 'empat', 5 => 'lima', 6 => 'enam',
+                7 => 'tujuh', 8 => 'lapan', 9 => 'sembilan', 10 => 'sepuluh', 11 => 'sebelas',
+                12 => 'dua belas', 13 => 'tiga belas', 14 => 'empat belas', 15 => 'lima belas',
+                16 => 'enam belas', 17 => 'tujuh belas', 18 => 'lapan belas', 19 => 'sembilan belas',
+                20 => 'dua puluh',
+            ];
+            $variables['AppearanceDaysWord'] = $appearanceWordMap[$appearanceValue] ?? (string) $variables['AppearanceDays'];
+        }
 
         if (trim((string) $variables['Signed']) === '' && trim((string) $variables['SignedImageDataUrl']) !== '') {
             $variables['Signed'] = '[SIGNED_IMAGE]';
