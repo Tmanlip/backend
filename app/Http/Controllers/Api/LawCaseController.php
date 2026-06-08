@@ -159,6 +159,25 @@ class LawCaseController extends Controller
         ];
     }
 
+    private function decodeTypeScriptFeeItems(string $tsContent): array
+    {
+        $content = $this->stripUtf8Bom($tsContent);
+        $start = strpos($content, '[');
+        $end = strrpos($content, ']');
+
+        if ($start === false || $end === false || $end <= $start) {
+            return [];
+        }
+
+        $jsonChunk = trim(substr($content, $start, $end - $start + 1));
+        if ($jsonChunk === '') {
+            return [];
+        }
+
+        $decoded = json_decode($jsonChunk, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
     private function formatCurrencyAmount(float $value): string
     {
         $formatted = number_format($value, 2, '.', '');
@@ -330,6 +349,7 @@ class LawCaseController extends Controller
             $practiceArea = self::CASE_TYPE_TO_PRACTICE_AREA[$caseType] ?? 'Civil';
             $jsonPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.json');
             $csvPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.csv');
+            $tsPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.ts');
 
             $sourceItems = [];
 
@@ -359,6 +379,13 @@ class LawCaseController extends Controller
 
                         $sourceItems[] = $item;
                     }
+                }
+            }
+
+            if (empty($sourceItems) && file_exists($tsPath)) {
+                $tsRaw = @file_get_contents($tsPath);
+                if (is_string($tsRaw) && trim($tsRaw) !== '') {
+                    $sourceItems = $this->decodeTypeScriptFeeItems($tsRaw);
                 }
             }
 
