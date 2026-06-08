@@ -998,16 +998,17 @@ XML;
 
                     if (extension_loaded('gd')) {
                         try {
-                            $html = $this->renderDocxBufferAsHtml($docxWithMarker['buffer']);
-                            if (is_string($html) && trim($html) !== '') {
-                                $htmlWithSignature = $this->injectSignatureIntoLodHtml($html, $signatureDataUrl);
-                                $pdfWithSignature = $this->renderInvoiceHtmlToPdf($htmlWithSignature);
+                            // DOCX-to-HTML extraction from Word XML can flatten formatting severely.
+                            // Use deterministic LOD fallback HTML and inject signature there.
+                            $fallbackVariables = $this->buildLodVariables($lodFormData);
+                            $fallbackHtml = $this->buildLodFallbackHtmlFromVariables($fallbackVariables);
+                            $htmlWithSignature = $this->injectSignatureIntoLodHtml($fallbackHtml, $signatureDataUrl);
+                            $pdfWithSignature = $this->renderInvoiceHtmlToPdf($htmlWithSignature);
 
-                                return [
-                                    'buffer' => $pdfWithSignature,
-                                    'filename' => 'LOD_Template_work.pdf',
-                                ];
-                            }
+                            return [
+                                'buffer' => $pdfWithSignature,
+                                'filename' => 'LOD_Template_work.pdf',
+                            ];
                         } catch (\Throwable $htmlFallbackError) {
                             logger()->warning('LOD signature HTML fallback failed.', [
                                 'message' => $htmlFallbackError->getMessage(),
