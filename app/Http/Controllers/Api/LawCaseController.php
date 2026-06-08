@@ -178,6 +178,54 @@ class LawCaseController extends Controller
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function normalizePracticeArea(string $value): string
+    {
+        $normalized = strtolower(trim($value));
+
+        return match ($normalized) {
+            'civil', 'litigation' => 'Civil',
+            'corporate' => 'Corporate',
+            'criminal' => 'Criminal',
+            default => trim($value),
+        };
+    }
+
+    private function candidateTypeOfWorkSourcePaths(): array
+    {
+        $paths = [];
+
+        $configuredBase = trim((string) env('CHATBOT_PLAYBOOK_PATH', ''));
+        if ($configuredBase !== '') {
+            $normalizedBase = rtrim(str_replace('\\', '/', $configuredBase), '/');
+            $paths[] = [
+                $normalizedBase . '/TypeOfWork_EstimationFees.json',
+                $normalizedBase . '/TypeOfWork_EstimationFees.csv',
+                $normalizedBase . '/TypeOfWork_EstimationFees.ts',
+            ];
+        }
+
+        $storageBase = storage_path('app/chatbot/operations-playbook-excel');
+        $paths[] = [
+            $storageBase . '/TypeOfWork_EstimationFees.json',
+            $storageBase . '/TypeOfWork_EstimationFees.csv',
+            $storageBase . '/TypeOfWork_EstimationFees.ts',
+        ];
+
+        $unique = [];
+        $result = [];
+        foreach ($paths as $triple) {
+            $key = strtolower(implode('|', $triple));
+            if (isset($unique[$key])) {
+                continue;
+            }
+
+            $unique[$key] = true;
+            $result[] = $triple;
+        }
+
+        return $result;
+    }
+
     private function formatCurrencyAmount(float $value): string
     {
         $formatted = number_format($value, 2, '.', '');
@@ -347,45 +395,70 @@ class LawCaseController extends Controller
         try {
             $caseType = (string) $request->query('caseType', 'Litigation');
             $practiceArea = self::CASE_TYPE_TO_PRACTICE_AREA[$caseType] ?? 'Civil';
-            $jsonPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.json');
-            $csvPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.csv');
-            $tsPath = storage_path('app/chatbot/operations-playbook-excel/TypeOfWork_EstimationFees.ts');
+            $normalizedPracticeArea = $this->normalizePracticeArea($practiceArea);
 
             $sourceItems = [];
+            $sourceMeta = [
+                'kind' => 'none',
+                'path' => null,
+            ];
 
-            if (file_exists($jsonPath)) {
-                $raw = @file_get_contents($jsonPath);
-                $decoded = json_decode($this->stripUtf8Bom((string) $raw), true);
-                if (is_array($decoded)) {
-                    $sourceItems = $decoded;
-                }
-            }
-
-            if (empty($sourceItems) && file_exists($csvPath)) {
-                $rows = @file($csvPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-                if (is_array($rows) && count($rows) > 1) {
-                    $headers = str_getcsv($this->stripUtf8Bom((string) $rows[0]));
-
-                    for ($i = 1; $i < count($rows); $i++) {
-                        $values = str_getcsv((string) $rows[$i]);
-                        if (count($values) !== count($headers)) {
-                            continue;
-                        }
-
-                        $item = [];
-                        foreach ($headers as $index => $header) {
-                            $item[trim((string) $header)] = $values[$index] ?? null;
-                        }
-
-                        $sourceItems[] = $item;
+            foreach ($this->candidateTypeOfWorkSourcePaths() as [$jsonPath, $csvPath, $tsPath]) {
+                if (empty($sourceItems) && file_exists($jsonPath)) {
+                    $raw = @file_get_contents($jsonPath);
+                    $decoded = json_decode($this->stripUtf8Bom((string) $raw), true);
+                    if (is_array($decoded)) {
+                        $sourceItems = $decoded;
+                        $sourceMeta = [
+                            'kind' => 'json',
+                            'path' => $jsonPath,
+                        ];
                     }
                 }
-            }
 
-            if (empty($sourceItems) && file_exists($tsPath)) {
-                $tsRaw = @file_get_contents($tsPath);
-                if (is_string($tsRaw) && trim($tsRaw) !== '') {
-                    $sourceItems = $this->decodeTypeScriptFeeItems($tsRaw);
+                if (empty($sourceItems) && file_exists($csvPath)) {
+                    $rows = @file($csvPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                    if (is_array($rows) && count($rows) > 1) {
+                        $headers = str_getcsv($this->stripUtf8Bom((string) $rows[0]));
+
+                        for ($i = 1; $i < count($rows); $i++) {
+                            $values = str_getcsv((string) $rows[$i]);
+                            if (count($values) !== count($headers)) {
+                                continue;
+                            }
+
+                            $item = [];
+                            foreach ($headers as $index => $header) {
+                                $item[trim((string) $header)] = $values[$index] ?? null;
+                            }
+
+                            $sourceItems[] = $item;
+                        }
+
+                        if (!empty($sourceItems)) {
+                            $sourceMeta = [
+                                'kind' => 'csv',
+                                'path' => $csvPath,
+                            ];
+                        }
+                    }
+                }
+
+                if (empty($sourceItems) && file_exists($tsPath)) {
+                    $tsRaw = @file_get_contents($tsPath);
+                    if (is_string($tsRaw) && trim($tsRaw) !== '') {
+                        $sourceItems = $this->decodeTypeScriptFeeItems($tsRaw);
+                        if (!empty($sourceItems)) {
+                            $sourceMeta = [
+                                'kind' => 'ts',
+                                'path' => $tsPath,
+                            ];
+                        }
+                    }
+                }
+
+                if (!empty($sourceItems)) {
+                    break;
                 }
             }
 
@@ -398,8 +471,8 @@ class LawCaseController extends Controller
                 }
 
                 $normalizedItem = $this->normalizeFeeSourceItem($item);
-                $itemPracticeArea = trim((string) ($normalizedItem['practiceArea'] ?? ''));
-                if ($itemPracticeArea !== $practiceArea) {
+                $itemPracticeArea = $this->normalizePracticeArea((string) ($normalizedItem['practiceArea'] ?? ''));
+                if ($itemPracticeArea !== $normalizedPracticeArea) {
                     continue;
                 }
 
@@ -432,16 +505,36 @@ class LawCaseController extends Controller
             }
 
             if (empty($result)) {
-                $result = $this->loadTypeOfWorkOptionsFromCases($practiceArea);
+                $result = $this->loadTypeOfWorkOptionsFromCases($normalizedPracticeArea);
+                if (!empty($result)) {
+                    $sourceMeta = [
+                        'kind' => 'case_type_fee_json',
+                        'path' => 'law_cases.case_type_fee_json',
+                    ];
+                }
             }
 
             if (empty($result)) {
-                $result = $this->buildStaticTypeOfWorkFallback($practiceArea);
+                $result = $this->buildStaticTypeOfWorkFallback($normalizedPracticeArea);
+                if (!empty($result)) {
+                    $sourceMeta = [
+                        'kind' => 'static_fallback',
+                        'path' => 'LawCaseController::STATIC_TYPE_OF_WORK_FALLBACK',
+                    ];
+                }
             }
+
+            Log::info('Type of work options resolved', [
+                'caseType' => $caseType,
+                'practiceArea' => $normalizedPracticeArea,
+                'source' => $sourceMeta,
+                'sourceItemsCount' => count($sourceItems),
+                'resultCount' => count($result),
+            ]);
 
             return response()->json([
                 'caseType' => $caseType,
-                'practiceArea' => $practiceArea,
+                'practiceArea' => $normalizedPracticeArea,
                 'items' => $result,
             ]);
         } catch (\Throwable $e) {
