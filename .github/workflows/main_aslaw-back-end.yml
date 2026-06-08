@@ -65,6 +65,33 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_D0B5268FCC434C56926BCFC3C047879C }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_63619C9565D3491289AACA85ACEF8F97 }}
 
+      - name: Configure App Service startup for LibreOffice
+        continue-on-error: true
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            set -e
+
+            APP_NAME="aslaw-back-end"
+            RESOURCE_GROUP=$(az webapp list --query "[?name=='$APP_NAME'].resourceGroup | [0]" -o tsv)
+
+            if [ -z "$RESOURCE_GROUP" ]; then
+              echo "Resource group for $APP_NAME not found. Skipping startup configuration."
+              exit 0
+            fi
+
+            STARTUP_CMD="bash -lc 'if ! command -v soffice >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y libreoffice libreoffice-writer libreoffice-common fonts-dejavu; fi; export LIBREOFFICE_PATH=\$(command -v soffice || echo /usr/bin/soffice); exec /opt/startup/startup.sh'"
+
+            az webapp config set \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$APP_NAME" \
+              --startup-file "$STARTUP_CMD"
+
+            az webapp config appsettings set \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$APP_NAME" \
+              --settings LIBREOFFICE_PATH=/usr/bin/soffice
+
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
