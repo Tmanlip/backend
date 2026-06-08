@@ -19,6 +19,79 @@ class LogClassification
         'AUDIT' => 2,
     ];
 
+    public static function deriveInteraction(string $method, string $path): string
+    {
+        $method = strtoupper(trim($method));
+        $path = strtolower(trim($path, '/'));
+
+        if ($path === '' || $path === 'api') {
+            return 'view';
+        }
+
+        if (str_contains($path, 'upload')) {
+            return 'upload';
+        }
+
+        if (str_contains($path, 'generate')) {
+            return 'generate';
+        }
+
+        if (str_contains($path, 'download')) {
+            return 'download';
+        }
+
+        if (str_contains($path, 'preview')) {
+            return 'preview';
+        }
+
+        if (str_contains($path, 'share')) {
+            return 'share';
+        }
+
+        if (str_contains($path, 'revoke')) {
+            return 'revoke';
+        }
+
+        if (str_contains($path, 'login')) {
+            return 'login';
+        }
+
+        if (str_contains($path, 'logout')) {
+            return 'logout';
+        }
+
+        if (str_contains($path, 'register')) {
+            return 'register';
+        }
+
+        if (str_contains($path, 'ask') || str_contains($path, 'chat')) {
+            return 'chat';
+        }
+
+        if (str_contains($path, 'invoice')) {
+            return 'invoice';
+        }
+
+        if (str_contains($path, 'meeting')) {
+            return 'meeting';
+        }
+
+        if (str_contains($path, 'notification')) {
+            return 'notification';
+        }
+
+        if (str_contains($path, 'user') || str_contains($path, 'profile')) {
+            return 'user-management';
+        }
+
+        return match ($method) {
+            'POST' => 'create',
+            'PUT', 'PATCH' => 'update',
+            'DELETE' => 'delete',
+            default => 'view',
+        };
+    }
+
     public static function deriveModule(string $path): string
     {
         $path = strtolower($path);

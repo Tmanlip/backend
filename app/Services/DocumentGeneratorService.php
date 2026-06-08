@@ -16,10 +16,20 @@ class DocumentGeneratorService
 
     public function __construct()
     {
-        $configured = config('ai.document_template_base_path');
-        $this->templateRoot = $configured && trim((string) $configured) !== ''
-            ? (string) $configured
-            : storage_path('app/document-generator/templates');
+        $configured = trim((string) config('ai.document_template_base_path', ''));
+        if ($configured === '') {
+            $this->templateRoot = storage_path('app/document-generator/templates');
+            return;
+        }
+
+        $this->templateRoot = $this->isAbsolutePath($configured)
+            ? $configured
+            : base_path($configured);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        return preg_match('/^(?:[A-Za-z]:[\\\\\/]|\\\\\\\\|\/)/', $path) === 1;
     }
 
     public function health(): array
@@ -106,8 +116,8 @@ class DocumentGeneratorService
         return $this->generateDocxFromTemplate(
             'LOD',
             [
-                'LOD_Template.docx',
                 'LOD_Template_work.docx',
+                'LOD_Template.docx',
                 'LOD JENERAL TAN SRI DATO SERI ZAMROSE BIN MOHD ZAIN.docx',
             ],
             $variables,
@@ -117,9 +127,17 @@ class DocumentGeneratorService
 
     public function generateWritDocx(array $formData = []): array
     {
-        $variables = $this->buildWritVariables($formData);
+        $signatureDataUrl = $this->sanitizeSignatureDataUrl((string) ($formData['SignedImageDataUrl'] ?? ''));
+        $defendants = $this->normalizeWritDefendants($formData['Defendants'] ?? null, $formData);
 
-        return $this->generateDocxFromTemplate(
+        $normalizedFormData = $formData;
+        if ($signatureDataUrl !== null) {
+            $normalizedFormData['Signed'] = '[SIGNED_IMAGE]';
+        }
+
+        $variables = $this->buildWritVariables($normalizedFormData);
+
+        $generated = $this->generateDocxFromTemplate(
             'WritOfSummons',
             [
                 'Writ_of_Summons_Template.docx',
@@ -129,6 +147,364 @@ class DocumentGeneratorService
             $variables,
             'Writ_of_Summons_Template.docx'
         );
+
+        $hasSecondDefendant = trim((string) ($variables['Defendant2Name'] ?? '')) !== ''
+            || trim((string) ($variables['Defendant2NRIC'] ?? '')) !== ''
+            || trim((string) ($variables['Defendant2Address'] ?? '')) !== ''
+            || trim((string) ($variables['Defendant2AddressLine1'] ?? '')) !== '';
+
+        if (! $hasSecondDefendant) {
+            try {
+                $generated['buffer'] = $this->stripEmptySecondDefendantLinesFromWritDocx($generated['buffer']);
+            } catch (\Throwable $error) {
+                logger()->warning('Writ defendant-line cleanup failed; returning generated DOCX as-is.', [
+                    'message' => $error->getMessage(),
+                    'exception' => $error::class,
+                ]);
+            }
+        }
+
+        if (count($defendants) > 2) {
+            try {
+                $generated['buffer'] = $this->expandAdditionalDefendantLinesInWritDocx($generated['buffer'], $defendants);
+            } catch (\Throwable $error) {
+                logger()->warning('Writ multi-defendant expansion failed; returning generated DOCX as-is.', [
+                    'message' => $error->getMessage(),
+                    'exception' => $error::class,
+                ]);
+            }
+        }
+
+        if ($signatureDataUrl !== null) {
+            try {
+                $generated['buffer'] = $this->embedSignatureImageIntoDocxBuffer($generated['buffer'], $signatureDataUrl);
+            } catch (\Throwable $error) {
+                logger()->warning('Writ signature embedding failed; returning text placeholder.', [
+                    'message' => $error->getMessage(),
+                    'exception' => $error::class,
+                ]);
+            }
+        }
+
+        return $generated;
+    }
+
+    private function normalizeWritDefendants($rawDefendants, array $formData = []): array
+    {
+        $defendants = [];
+
+        if (is_array($rawDefendants)) {
+            foreach ($rawDefendants as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+
+                $name = trim((string) ($item['name'] ?? ''));
+                $nric = trim((string) ($item['nric'] ?? ''));
+                $address = trim((string) ($item['address'] ?? ''));
+
+                if ($name === '' && $nric === '' && $address === '') {
+                    continue;
+                }
+
+                $defendants[] = [
+                    'name' => $name,
+                    'nric' => $nric,
+                    'address' => $address,
+                ];
+            }
+        }
+
+        if ($defendants !== []) {
+            return $defendants;
+        }
+
+        $fallback = [
+            [
+                'name' => trim((string) ($formData['Defendant1Name'] ?? $formData['DefendantName'] ?? '')),
+                'nric' => trim((string) ($formData['Defendant1NRIC'] ?? $formData['DefendantNRIC'] ?? '')),
+                'address' => trim((string) ($formData['Defendant1Address'] ?? $formData['DefendantAddressLine1'] ?? '')),
+            ],
+            [
+                'name' => trim((string) ($formData['Defendant2Name'] ?? '')),
+                'nric' => trim((string) ($formData['Defendant2NRIC'] ?? '')),
+                'address' => trim((string) ($formData['Defendant2Address'] ?? $formData['Defendant2AddressLine1'] ?? '')),
+            ],
+        ];
+
+        return array_values(array_filter($fallback, static function (array $item): bool {
+            return $item['name'] !== '' || $item['nric'] !== '' || $item['address'] !== '';
+        }));
+    }
+
+    private function expandAdditionalDefendantLinesInWritDocx(string $docxBuffer, array $defendants): string
+    {
+        $tempFile = tempnam(sys_get_temp_dir(), 'aslaw-writ-expand-');
+        if (! $tempFile) {
+            return $docxBuffer;
+        }
+
+        if (@file_put_contents($tempFile, $docxBuffer) === false) {
+            @unlink($tempFile);
+            return $docxBuffer;
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($tempFile) !== true) {
+            @unlink($tempFile);
+            return $docxBuffer;
+        }
+
+        $documentXml = $zip->getFromName('word/document.xml');
+        if (! is_string($documentXml) || trim($documentXml) === '') {
+            $zip->close();
+            @unlink($tempFile);
+            return $docxBuffer;
+        }
+
+        $updatedXml = $this->expandAdditionalDefendantParagraphsInXml($documentXml, $defendants);
+        $zip->addFromString('word/document.xml', $updatedXml);
+        $zip->close();
+
+        $updated = @file_get_contents($tempFile);
+        @unlink($tempFile);
+
+        return is_string($updated) ? $updated : $docxBuffer;
+    }
+
+    private function expandAdditionalDefendantParagraphsInXml(string $xml, array $defendants): string
+    {
+        if (count($defendants) <= 2) {
+            return $xml;
+        }
+
+        $dom = new \DOMDocument();
+        if (! @ $dom->loadXML($xml)) {
+            return $xml;
+        }
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+
+        $paragraphs = $xpath->query('//w:p');
+        if (! $paragraphs) {
+            return $xml;
+        }
+
+        $nameAnchor = null;
+        $nricAnchor = null;
+        $kepadaAnchor = null;
+        $kepadaAddressAnchor = null;
+
+        foreach ($paragraphs as $paragraph) {
+            if (! ($paragraph instanceof \DOMElement)) {
+                continue;
+            }
+
+            $text = $this->getWordParagraphText($paragraph, $xpath);
+            if ($text === '') {
+                continue;
+            }
+
+            if ($nameAnchor === null && preg_match('/^2\.\s*/u', $text) === 1) {
+                $nameAnchor = $paragraph;
+                continue;
+            }
+
+            if ($nricAnchor === null && preg_match('/^\(No\.\s*K\/P\s*:/iu', $text) === 1 && strpos($text, 'DEFENDAN-DEFENDAN') !== false) {
+                $nricAnchor = $paragraph;
+                continue;
+            }
+
+            if ($kepadaAnchor === null && preg_match('/^2\)\s*/u', $text) === 1) {
+                $kepadaAnchor = $paragraph;
+                continue;
+            }
+        }
+
+        if ($kepadaAnchor instanceof \DOMElement) {
+            $next = $kepadaAnchor->nextSibling;
+            while ($next && ! ($next instanceof \DOMElement)) {
+                $next = $next->nextSibling;
+            }
+
+            if ($next instanceof \DOMElement && $next->localName === 'p') {
+                $kepadaAddressAnchor = $next;
+            }
+        }
+
+        if (! ($nameAnchor instanceof \DOMElement) || ! ($nricAnchor instanceof \DOMElement) || ! ($kepadaAnchor instanceof \DOMElement)) {
+            return $xml;
+        }
+
+        $lastNricParagraph = $nricAnchor;
+        $lastKepadaAddressParagraph = $kepadaAddressAnchor instanceof \DOMElement ? $kepadaAddressAnchor : $kepadaAnchor;
+
+        for ($i = 2; $i < count($defendants); $i++) {
+            $number = $i + 1;
+            $item = $defendants[$i];
+
+            $nameParagraph = $nameAnchor->cloneNode(true);
+            $this->setWordParagraphText($nameParagraph, $number . '. ' . (string) ($item['name'] ?? ''), $xpath);
+
+            $nricParagraph = $nricAnchor->cloneNode(true);
+            $this->setWordParagraphText(
+                $nricParagraph,
+                '(No. K/P : ' . (string) ($item['nric'] ?? '') . ')' . ($i === count($defendants) - 1 ? ' ...DEFENDAN-DEFENDAN' : ''),
+                $xpath
+            );
+
+            $lastNricParagraph->parentNode?->insertBefore($nameParagraph, $lastNricParagraph->nextSibling);
+            $nameParagraph->parentNode?->insertBefore($nricParagraph, $nameParagraph->nextSibling);
+            $lastNricParagraph = $nricParagraph;
+
+            $kepadaNumberParagraph = $kepadaAnchor->cloneNode(true);
+            $this->setWordParagraphText($kepadaNumberParagraph, $number . ') ' . (string) ($item['name'] ?? ''), $xpath);
+
+            $addressTemplate = $kepadaAddressAnchor instanceof \DOMElement ? $kepadaAddressAnchor : $kepadaAnchor;
+            $kepadaAddressParagraph = $addressTemplate->cloneNode(true);
+            $this->setWordParagraphText($kepadaAddressParagraph, (string) ($item['address'] ?? ''), $xpath);
+
+            $lastKepadaAddressParagraph->parentNode?->insertBefore($kepadaNumberParagraph, $lastKepadaAddressParagraph->nextSibling);
+            $kepadaNumberParagraph->parentNode?->insertBefore($kepadaAddressParagraph, $kepadaNumberParagraph->nextSibling);
+            $lastKepadaAddressParagraph = $kepadaAddressParagraph;
+        }
+
+        // Keep DEFENDAN-DEFENDAN only on the last defendant NRIC line.
+        $this->setWordParagraphText(
+            $nricAnchor,
+            preg_replace('/\s*\.\.\.DEFENDAN-DEFENDAN\s*$/u', '', $this->getWordParagraphText($nricAnchor, $xpath)) ?: $this->getWordParagraphText($nricAnchor, $xpath),
+            $xpath
+        );
+
+        return $dom->saveXML() ?: $xml;
+    }
+
+    private function getWordParagraphText(\DOMElement $paragraph, \DOMXPath $xpath): string
+    {
+        $textNodes = $xpath->query('.//w:t', $paragraph);
+        if (! $textNodes) {
+            return '';
+        }
+
+        $value = '';
+        foreach ($textNodes as $textNode) {
+            $value .= (string) $textNode->textContent;
+        }
+
+        return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    }
+
+    private function setWordParagraphText(\DOMElement $paragraph, string $text, \DOMXPath $xpath): void
+    {
+        $textNodes = $xpath->query('.//w:t', $paragraph);
+        if (! $textNodes || $textNodes->length === 0) {
+            return;
+        }
+
+        $textNodes->item(0)->textContent = $text;
+        for ($i = 1; $i < $textNodes->length; $i++) {
+            $textNodes->item($i)->textContent = '';
+        }
+    }
+
+    private function stripEmptySecondDefendantLinesFromWritDocx(string $docxBuffer): string
+    {
+        $tempFile = tempnam(sys_get_temp_dir(), 'aslaw-writ-clean-');
+        if (! $tempFile) {
+            return $docxBuffer;
+        }
+
+        if (@file_put_contents($tempFile, $docxBuffer) === false) {
+            @unlink($tempFile);
+            return $docxBuffer;
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($tempFile) !== true) {
+            @unlink($tempFile);
+            return $docxBuffer;
+        }
+
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entryName = $zip->getNameIndex($i);
+            if (! is_string($entryName)) {
+                continue;
+            }
+
+            if (! preg_match('/(^|\/)word\/(document|header[0-9]+|footer[0-9]+)\.xml$/i', $entryName)) {
+                continue;
+            }
+
+            $xml = $zip->getFromName($entryName);
+            if (! is_string($xml) || trim($xml) === '') {
+                continue;
+            }
+
+            $cleanedXml = $this->stripEmptySecondDefendantParagraphsFromXml($xml);
+            $zip->addFromString($entryName, $cleanedXml);
+        }
+
+        $zip->close();
+
+        $updated = @file_get_contents($tempFile);
+        @unlink($tempFile);
+
+        return is_string($updated) ? $updated : $docxBuffer;
+    }
+
+    private function stripEmptySecondDefendantParagraphsFromXml(string $xml): string
+    {
+        $dom = new \DOMDocument();
+        if (! @ $dom->loadXML($xml)) {
+            return $xml;
+        }
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+
+        $paragraphs = $xpath->query('//w:p');
+        if (! $paragraphs) {
+            return $xml;
+        }
+
+        $toRemove = [];
+        foreach ($paragraphs as $paragraph) {
+            if (! ($paragraph instanceof \DOMElement)) {
+                continue;
+            }
+
+            $textNodes = $xpath->query('.//w:t', $paragraph);
+            if (! $textNodes) {
+                continue;
+            }
+
+            $text = '';
+            foreach ($textNodes as $textNode) {
+                $text .= (string) $textNode->textContent;
+            }
+
+            $normalized = preg_replace('/\s+/u', ' ', trim($text));
+            if (! is_string($normalized) || $normalized === '') {
+                continue;
+            }
+
+            $isOrphanNumberedLine = preg_match('/^2[\.)]\s*$/u', $normalized) === 1;
+            $isOrphanNricLine = preg_match('/^\(No\.\s*K\/P\s*:\s*\)\s*(\.{3,}\s*)?DEFENDAN-DEFENDAN$/iu', $normalized) === 1;
+
+            if ($isOrphanNumberedLine || $isOrphanNricLine) {
+                $toRemove[] = $paragraph;
+            }
+        }
+
+        foreach ($toRemove as $paragraph) {
+            $parent = $paragraph->parentNode;
+            if ($parent instanceof \DOMNode) {
+                $parent->removeChild($paragraph);
+            }
+        }
+
+        return $dom->saveXML() ?: $xml;
     }
 
     public function generateInvoiceDocx(array $formData = []): array
@@ -219,103 +595,101 @@ class DocumentGeneratorService
          */
     }
 
-        private function buildInvoiceHtmlFromVariables(array $v): string
-        {
-            $fmt = fn($n) => is_numeric($n) && (string)$n !== '' ? 'RM ' . number_format((float)$n, 2) : '-';
-            $esc = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $choose = function (string $englishText, string $malayText) use ($v): string {
-                return $this->resolveInvoiceLanguage($v) === 'malay' ? $malayText : $englishText;
-            };
+    private function buildInvoiceHtmlFromVariables(array $v): string
+    {
+        $fmt = fn($n) => is_numeric($n) && (string)$n !== '' ? 'RM ' . number_format((float)$n, 2) : '-';
+        $esc = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $choose = function (string $englishText, string $malayText) use ($v): string {
+            return $this->resolveInvoiceLanguage($v) === 'malay' ? $malayText : $englishText;
+        };
 
-            $stageValue = strtolower(trim((string) ($v['payment_stage'] ?? 'initial')));
-            $stage = match ($stageValue) {
-                'initial' => $choose('Initial', 'Permulaan'),
-                'first' => $choose('First', 'Pertama'),
-                'second' => $choose('Second', 'Kedua'),
-                'third' => $choose('Third', 'Ketiga'),
-                'final' => $choose('Final', 'Akhir'),
-                default => ucfirst($stageValue !== '' ? $stageValue : 'initial'),
-            };
-            $invoiceNum = $esc($v['invoice_number'] ?? '');
-            $clientName = $esc($v['client_name'] ?? '');
-            $caseTitle  = $esc($v['case_title'] ?? '');
-            $typeOfWork = $esc($v['type_of_work'] ?? '');
-            $issueDate  = $esc($v['issue_date'] ?? '');
-            $dueDateRaw = trim((string) ($v['due_date'] ?? ''));
-            $dueDateLabel = $choose('Due', 'Tarikh Akhir');
-            $dueDate = $esc($dueDateRaw !== '' ? $dueDateLabel . ': ' . $dueDateRaw : '-');
-            $dueDateValue = $esc($dueDateRaw !== '' ? $dueDateRaw : '-');
-            $expected   = $fmt($v['expected_amount'] ?? '');
-            $paid       = $fmt($v['paid_amount'] ?? '');
-            $tax        = is_numeric($v['tax'] ?? '') && (string)($v['tax'] ?? '') !== '' ? $esc($v['tax']) . '%' : '-';
-            $discount   = is_numeric($v['discount'] ?? '') && (string)($v['discount'] ?? '') !== '' ? $esc($v['discount']) . '%' : '-';
-            $total      = $fmt($v['total_amount'] ?? '');
-            $typeOfWorkBalance = $fmt($v['balance'] ?? '');
-            $phaseBalance = $fmt($v['phase_balance'] ?? '');
-            $invoiceTitle = $choose('INVOICE', 'INVOIS');
-            $paymentLabel = $choose('Payment', 'Bayaran');
-            $issuedLabel = $choose('Issued', 'Dikeluarkan');
-            $billedToLabel = $choose('Billed To', 'Dibil Kepada');
-            $matterLabel = $choose('Matter', 'Perkara');
-            $typeOfWorkLabel = $choose('Type of Work', 'Jenis Kerja');
-            $expectedAmountLabel = $choose('Expected Amount', 'Jumlah Dijangka');
-            $paidAmountLabel = $choose('Amount Paid', 'Jumlah Dibayar');
-            $typeOfWorkBalanceLabel = $choose('Type of Work Balance', 'Baki Jenis Kerja');
-            $phaseBalanceLabel = $choose('Phase Balance', 'Baki Fasa');
-            $taxLabel = $choose('Tax', 'Cukai');
-            $discountLabel = $choose('Discount', 'Diskaun');
-            $totalLabel = $choose('Total', 'Jumlah Keseluruhan');
-            $amountDueLabel = $choose('Amount Due', 'Jumlah Perlu Dibayar');
-            $brandTagline = $choose('Professional Legal Invoice', 'Invois Undang-undang Profesional');
-            $brandContactLine = $esc((string) ($v['brand_contact_line'] ?? 'admin@aslaw.com.my | +60 12-345 6789'));
-            $footer = $choose(
-                'This is a computer-generated invoice. No signature is required.',
-                'Ini ialah invois yang dijana oleh komputer. Tandatangan tidak diperlukan.'
-            );
+        $stageValue = strtolower(trim((string) ($v['payment_stage'] ?? 'initial')));
+        $stage = match ($stageValue) {
+            'initial' => $choose('Initial', 'Permulaan'),
+            'first' => $choose('First', 'Pertama'),
+            'second' => $choose('Second', 'Kedua'),
+            'third' => $choose('Third', 'Ketiga'),
+            'final' => $choose('Final', 'Akhir'),
+            default => ucfirst($stageValue !== '' ? $stageValue : 'initial'),
+        };
+        $invoiceNum = $esc($v['invoice_number'] ?? '');
+        $clientName = $esc($v['client_name'] ?? '');
+        $caseTitle  = $esc($v['case_title'] ?? '');
+        $typeOfWork = $esc($v['type_of_work'] ?? '');
+        $issueDate  = $esc($v['issue_date'] ?? '');
+        $dueDateRaw = trim((string) ($v['due_date'] ?? ''));
+        $dueDateLabel = $choose('Due', 'Tarikh Akhir');
+        $dueDate = $esc($dueDateRaw !== '' ? $dueDateLabel . ': ' . $dueDateRaw : '-');
+        $dueDateValue = $esc($dueDateRaw !== '' ? $dueDateRaw : '-');
+        $expected   = $fmt($v['expected_amount'] ?? '');
+        $paid       = $fmt($v['paid_amount'] ?? '');
+        $tax        = is_numeric($v['tax'] ?? '') && (string)($v['tax'] ?? '') !== '' ? $esc($v['tax']) . '%' : '-';
+        $discount   = is_numeric($v['discount'] ?? '') && (string)($v['discount'] ?? '') !== '' ? $esc($v['discount']) . '%' : '-';
+        $total      = $fmt($v['total_amount'] ?? '');
+        $typeOfWorkBalance = $fmt($v['balance'] ?? '');
+        $phaseBalance = $fmt($v['phase_balance'] ?? '');
+        $invoiceTitle = $choose('INVOICE', 'INVOIS');
+        $paymentLabel = $choose('Payment', 'Bayaran');
+        $issuedLabel = $choose('Issued', 'Dikeluarkan');
+        $billedToLabel = $choose('Billed To', 'Dibil Kepada');
+        $matterLabel = $choose('Matter', 'Perkara');
+        $typeOfWorkLabel = $choose('Type of Work', 'Jenis Kerja');
+        $expectedAmountLabel = $choose('Expected Amount', 'Jumlah Dijangka');
+        $paidAmountLabel = $choose('Amount Paid', 'Jumlah Dibayar');
+        $typeOfWorkBalanceLabel = $choose('Type of Work Balance', 'Baki Jenis Kerja');
+        $phaseBalanceLabel = $choose('Phase Balance', 'Baki Fasa');
+        $taxLabel = $choose('Tax', 'Cukai');
+        $discountLabel = $choose('Discount', 'Diskaun');
+        $totalLabel = $choose('Total', 'Jumlah Keseluruhan');
+        $amountDueLabel = $choose('Amount Due', 'Jumlah Perlu Dibayar');
+        $brandTagline = $choose('Professional Legal Invoice', 'Invois Undang-undang Profesional');
+        $brandContactLine = $esc((string) ($v['brand_contact_line'] ?? 'admin@aslaw.com.my | +60 12-345 6789'));
+        $footer = $choose(
+            'This is a computer-generated invoice. No signature is required.',
+            'Ini ialah invois yang dijana oleh komputer. Tandatangan tidak diperlukan.'
+        );
 
-            $logoDataUri = $this->buildInvoiceLogoDataUri();
-            // Word/LibreOffice HTML import may ignore parts of stylesheet CSS,
-            // so keep hard image constraints inline to prevent oversized logos.
-            $brandLogoHtml = $logoDataUri !== null
-                ? '<img src="' . $esc($logoDataUri) . '" alt="ASLAW" width="220" height="36" style="display:block;width:220px;height:36px;" />'
-                : '<span class="brand-text">ASLAW</span>';
+        $logoDataUri = $this->buildInvoiceLogoDataUri();
+        $brandLogoHtml = $logoDataUri !== null
+            ? '<img src="' . $esc($logoDataUri) . '" alt="ASLAW" width="320" height="56" style="display:block;width:320px;height:56px;" />'
+            : '<span class="brand-text">ASLAW</span>';
 
-            return $this->renderInvoiceTemplate([
-                '{{invoiceTitle}}' => $invoiceTitle,
-                '{{stage}}' => $stage,
-                '{{paymentLabel}}' => $paymentLabel,
-                '{{brandLogoHtml}}' => $brandLogoHtml,
-                '{{brandTagline}}' => $brandTagline,
-                '{{brandContactLine}}' => $brandContactLine,
-                '{{invoiceNum}}' => $invoiceNum,
-                '{{issuedLabel}}' => $issuedLabel,
-                '{{issueDate}}' => $issueDate,
-                '{{dueDate}}' => $dueDate,
-                '{{dueDateValue}}' => $dueDateValue,
-                '{{billedToLabel}}' => $billedToLabel,
-                '{{clientName}}' => $clientName,
-                '{{matterLabel}}' => $matterLabel,
-                '{{caseTitle}}' => $caseTitle,
-                '{{typeOfWorkLabel}}' => $typeOfWorkLabel,
-                '{{typeOfWork}}' => $typeOfWork,
-                '{{expectedAmountLabel}}' => $expectedAmountLabel,
-                '{{expected}}' => $expected,
-                '{{paidAmountLabel}}' => $paidAmountLabel,
-                '{{paid}}' => $paid,
-                '{{typeOfWorkBalanceLabel}}' => $typeOfWorkBalanceLabel,
-                '{{typeOfWorkBalance}}' => $typeOfWorkBalance,
-                '{{phaseBalanceLabel}}' => $phaseBalanceLabel,
-                '{{phaseBalance}}' => $phaseBalance,
-                '{{taxLabel}}' => $taxLabel,
-                '{{tax}}' => $tax,
-                '{{discountLabel}}' => $discountLabel,
-                '{{discount}}' => $discount,
-                '{{totalLabel}}' => $totalLabel,
-                '{{total}}' => $total,
-                '{{amountDueLabel}}' => $amountDueLabel,
-                '{{footer}}' => $footer,
-            ]);
-        }
+        return $this->renderInvoiceTemplate([
+            '{{invoiceTitle}}' => $invoiceTitle,
+            '{{stage}}' => $stage,
+            '{{paymentLabel}}' => $paymentLabel,
+            '{{brandLogoHtml}}' => $brandLogoHtml,
+            '{{brandTagline}}' => $brandTagline,
+            '{{brandContactLine}}' => $brandContactLine,
+            '{{invoiceNum}}' => $invoiceNum,
+            '{{issuedLabel}}' => $issuedLabel,
+            '{{issueDate}}' => $issueDate,
+            '{{dueDate}}' => $dueDate,
+            '{{dueDateValue}}' => $dueDateValue,
+            '{{billedToLabel}}' => $billedToLabel,
+            '{{clientName}}' => $clientName,
+            '{{matterLabel}}' => $matterLabel,
+            '{{caseTitle}}' => $caseTitle,
+            '{{typeOfWorkLabel}}' => $typeOfWorkLabel,
+            '{{typeOfWork}}' => $typeOfWork,
+            '{{expectedAmountLabel}}' => $expectedAmountLabel,
+            '{{expected}}' => $expected,
+            '{{paidAmountLabel}}' => $paidAmountLabel,
+            '{{paid}}' => $paid,
+            '{{typeOfWorkBalanceLabel}}' => $typeOfWorkBalanceLabel,
+            '{{typeOfWorkBalance}}' => $typeOfWorkBalance,
+            '{{phaseBalanceLabel}}' => $phaseBalanceLabel,
+            '{{phaseBalance}}' => $phaseBalance,
+            '{{taxLabel}}' => $taxLabel,
+            '{{tax}}' => $tax,
+            '{{discountLabel}}' => $discountLabel,
+            '{{discount}}' => $discount,
+            '{{totalLabel}}' => $totalLabel,
+            '{{total}}' => $total,
+            '{{amountDueLabel}}' => $amountDueLabel,
+            '{{footer}}' => $footer,
+        ]);
+    }
 
     private function renderInvoiceTemplate(array $placeholders): string
     {
@@ -595,13 +969,331 @@ XML;
 
     public function generateLodPdf(array $formData = []): array
     {
+        $signatureDataUrl = $this->sanitizeSignatureDataUrl((string) ($formData['SignedImageDataUrl'] ?? ''));
+        $docx = null;
+        if ($signatureDataUrl !== null) {
+            $lodFormData = $formData;
+            $lodFormData['Signed'] = '[SIGNED_IMAGE]';
+            $docxWithMarker = $this->generateLodDocx($lodFormData);
+
+            try {
+                $docxWithSignature = $this->embedSignatureImageIntoDocxBuffer($docxWithMarker['buffer'], $signatureDataUrl);
+                $pdfWithSignature = $this->convertDocxBufferToPdf($docxWithSignature);
+
+                return [
+                    'buffer' => $pdfWithSignature,
+                    'filename' => 'LOD_Template_work.pdf',
+                ];
+            } catch (\Throwable $signatureError) {
+                logger()->warning('LOD signature embedding via DOCX failed; trying fallback path.', [
+                    'message' => $signatureError->getMessage(),
+                    'exception' => $signatureError::class,
+                ]);
+
+                if (extension_loaded('gd')) {
+                    try {
+                        $html = $this->renderDocxBufferAsHtml($docxWithMarker['buffer']);
+                        if (is_string($html) && trim($html) !== '') {
+                            $htmlWithSignature = $this->injectSignatureIntoLodHtml($html, $signatureDataUrl);
+                            $pdfWithSignature = $this->renderInvoiceHtmlToPdf($htmlWithSignature);
+
+                            return [
+                                'buffer' => $pdfWithSignature,
+                                'filename' => 'LOD_Template_work.pdf',
+                            ];
+                        }
+                    } catch (\Throwable $htmlFallbackError) {
+                        logger()->warning('LOD signature HTML fallback failed.', [
+                            'message' => $htmlFallbackError->getMessage(),
+                            'exception' => $htmlFallbackError::class,
+                        ]);
+                    }
+                } else {
+                    logger()->warning('LOD signature image was provided but GD is unavailable; HTML image fallback skipped.');
+                }
+            }
+        }
+
         $docx = $this->generateLodDocx($formData);
-        $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+
+        $pdfBuffer = null;
+        $conversionErrorMessage = null;
+
+        try {
+            $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+        } catch (\Throwable $conversionError) {
+            $conversionErrorMessage = $conversionError->getMessage();
+
+            logger()->warning('LOD PDF LibreOffice conversion failed, falling back to Dompdf.', [
+                'message' => $conversionErrorMessage,
+                'exception' => $conversionError::class,
+            ]);
+        }
+
+        if (! is_string($pdfBuffer) || $pdfBuffer === '') {
+            $html = $this->renderDocxBufferAsHtml($docx['buffer']);
+            if (! is_string($html) || trim($html) === '') {
+                throw new RuntimeException(
+                    'Unable to generate LOD PDF. LibreOffice conversion failed'
+                    . ($conversionErrorMessage ? ': ' . $conversionErrorMessage : '.')
+                    . ' Docx-to-HTML fallback produced empty content.'
+                );
+            }
+
+            $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
+        }
 
         return [
             'buffer' => $pdfBuffer,
             'filename' => 'LOD_Template_work.pdf',
         ];
+    }
+
+    public function generateWritPdf(array $formData = []): array
+    {
+        $docx = $this->generateWritDocx($formData);
+
+        $pdfBuffer = null;
+        $conversionErrorMessage = null;
+
+        try {
+            $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+        } catch (\Throwable $conversionError) {
+            $conversionErrorMessage = $conversionError->getMessage();
+
+            logger()->warning('Writ PDF LibreOffice conversion failed, falling back to Dompdf.', [
+                'message' => $conversionErrorMessage,
+                'exception' => $conversionError::class,
+            ]);
+        }
+
+        if (! is_string($pdfBuffer) || $pdfBuffer === '') {
+            $html = $this->renderDocxBufferAsHtml($docx['buffer']);
+            if (! is_string($html) || trim($html) === '') {
+                throw new RuntimeException(
+                    'Unable to generate Writ PDF. LibreOffice conversion failed'
+                    . ($conversionErrorMessage ? ': ' . $conversionErrorMessage : '.')
+                    . ' Docx-to-HTML fallback produced empty content.'
+                );
+            }
+
+            $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
+        }
+
+        return [
+            'buffer' => $pdfBuffer,
+            'filename' => 'Writ_of_Summons_Template.pdf',
+        ];
+    }
+
+    private function sanitizeSignatureDataUrl(string $value): ?string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return preg_match('~^data:image/(?:png|jpe?g);base64,[A-Za-z0-9+/=\r\n]+$~i', $trimmed) === 1
+            ? $trimmed
+            : null;
+    }
+
+    private function embedSignatureImageIntoDocxBuffer(string $docxBuffer, string $signatureDataUrl): string
+    {
+        if ($docxBuffer === '') {
+            throw new RuntimeException('DOCX buffer is empty; cannot embed signature image.');
+        }
+
+        if (! preg_match('~^data:image/(png|jpe?g);base64,(.+)$~is', trim($signatureDataUrl), $matches)) {
+            throw new RuntimeException('Invalid signature data URL format.');
+        }
+
+        $imageType = strtolower((string) ($matches[1] ?? 'png'));
+        $base64Payload = preg_replace('/\s+/', '', (string) ($matches[2] ?? ''));
+        $imageBinary = base64_decode($base64Payload, true);
+
+        if (! is_string($imageBinary) || $imageBinary === '') {
+            throw new RuntimeException('Unable to decode signature image payload.');
+        }
+
+        $extension = $imageType === 'jpeg' || $imageType === 'jpg' ? 'jpg' : 'png';
+        $imageFileName = 'signed-image-' . substr(sha1($imageBinary), 0, 12) . '.' . $extension;
+        $imagePath = 'word/media/' . $imageFileName;
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'aslaw-lod-sign-');
+        if (! $tempFile) {
+            throw new RuntimeException('Unable to allocate temporary DOCX file for signature embedding.');
+        }
+
+        file_put_contents($tempFile, $docxBuffer);
+
+        $zip = new ZipArchive();
+        if ($zip->open($tempFile) !== true) {
+            @unlink($tempFile);
+            throw new RuntimeException('Unable to open DOCX archive for signature embedding.');
+        }
+
+        $zip->addFromString($imagePath, $imageBinary);
+
+        $relsPath = 'word/_rels/document.xml.rels';
+        $relsXml = $zip->getFromName($relsPath);
+        if (! is_string($relsXml) || trim($relsXml) === '') {
+            $zip->close();
+            @unlink($tempFile);
+            throw new RuntimeException('DOCX relationships file is missing; cannot attach signature image.');
+        }
+
+        preg_match_all('/Id="rId(\d+)"/i', $relsXml, $relMatches);
+        $maxRelId = 0;
+        foreach (($relMatches[1] ?? []) as $idText) {
+            $idValue = (int) $idText;
+            if ($idValue > $maxRelId) {
+                $maxRelId = $idValue;
+            }
+        }
+
+        $nextRelId = 'rId' . ($maxRelId + 1);
+        $relationshipXml = '<Relationship Id="' . $nextRelId . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/' . $imageFileName . '"/>';
+        $updatedRelsXml = preg_replace('/<\/Relationships>\s*$/i', $relationshipXml . '</Relationships>', $relsXml, 1);
+        if (! is_string($updatedRelsXml) || $updatedRelsXml === '') {
+            $zip->close();
+            @unlink($tempFile);
+            throw new RuntimeException('Unable to update DOCX relationships with signature image.');
+        }
+
+        $zip->addFromString($relsPath, $updatedRelsXml);
+
+        $documentPath = 'word/document.xml';
+        $documentXml = $zip->getFromName($documentPath);
+        if (! is_string($documentXml) || trim($documentXml) === '') {
+            $zip->close();
+            @unlink($tempFile);
+            throw new RuntimeException('DOCX document.xml is missing; cannot place signature image.');
+        }
+
+        $drawingRunXml = $this->buildWordSignatureDrawingRunXml($nextRelId);
+        $markerWasReplaced = false;
+        $updatedDocumentXml = preg_replace_callback(
+            '~<w:t([^>]*)>(.*?)</w:t>~s',
+            function (array $matches) use (&$markerWasReplaced, $drawingRunXml): string {
+                if ($markerWasReplaced) {
+                    return $matches[0];
+                }
+
+                $attributes = (string) ($matches[1] ?? '');
+                $text = (string) ($matches[2] ?? '');
+
+                $marker = null;
+                if (strpos($text, '[SIGNED_IMAGE]') !== false) {
+                    $marker = '[SIGNED_IMAGE]';
+                } elseif (strpos($text, '[SIGNED IMAGE]') !== false) {
+                    $marker = '[SIGNED IMAGE]';
+                } elseif (strpos($text, '{{Signed}}') !== false) {
+                    $marker = '{{Signed}}';
+                }
+
+                if ($marker === null) {
+                    return $matches[0];
+                }
+
+                $parts = explode($marker, $text, 2);
+                $before = (string) ($parts[0] ?? '');
+                $after = (string) ($parts[1] ?? '');
+
+                $fragment = '';
+                if ($before !== '') {
+                    $fragment .= '<w:t' . $attributes . '>' . $before . '</w:t>';
+                }
+
+                $fragment .= '</w:r>' . $drawingRunXml . '<w:r>';
+
+                if ($after !== '') {
+                    $fragment .= '<w:t' . $attributes . '>' . $after . '</w:t>';
+                }
+
+                $markerWasReplaced = true;
+
+                return $fragment;
+            },
+            $documentXml,
+            1
+        );
+
+        if ((! is_string($updatedDocumentXml) || ! $markerWasReplaced) && strpos($documentXml, '[SIGNED_IMAGE]') !== false) {
+            $updatedDocumentXml = str_replace(
+                '[SIGNED_IMAGE]',
+                '</w:t></w:r>' . $drawingRunXml . '<w:r><w:t>',
+                $documentXml,
+                $replacementCount
+            );
+            $markerWasReplaced = is_string($updatedDocumentXml) && ($replacementCount ?? 0) > 0;
+        }
+
+        if ((! is_string($updatedDocumentXml) || ! $markerWasReplaced) && strpos($documentXml, '[SIGNED IMAGE]') !== false) {
+            $updatedDocumentXml = str_replace(
+                '[SIGNED IMAGE]',
+                '</w:t></w:r>' . $drawingRunXml . '<w:r><w:t>',
+                $documentXml,
+                $replacementCount
+            );
+            $markerWasReplaced = is_string($updatedDocumentXml) && ($replacementCount ?? 0) > 0;
+        }
+
+        if (! is_string($updatedDocumentXml) || ! $markerWasReplaced) {
+            $zip->close();
+            @unlink($tempFile);
+            throw new RuntimeException('Signature placeholder marker was not found in DOCX content.');
+        }
+
+        $zip->addFromString($documentPath, $updatedDocumentXml);
+        $zip->close();
+
+        $updatedBuffer = file_get_contents($tempFile);
+        @unlink($tempFile);
+
+        if (! is_string($updatedBuffer) || $updatedBuffer === '') {
+            throw new RuntimeException('Unable to read updated DOCX buffer after signature embedding.');
+        }
+
+        return $updatedBuffer;
+    }
+
+    private function buildWordSignatureDrawingRunXml(string $relationshipId): string
+    {
+        $widthEmu = 2_095_500;
+        $heightEmu = 857_250;
+
+        return '<w:r><w:drawing>'
+            . '<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+            . '<wp:extent cx="' . $widthEmu . '" cy="' . $heightEmu . '"/>'
+            . '<wp:docPr id="9001" name="SignatureImage"/>'
+            . '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+            . '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            . '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            . '<pic:nvPicPr><pic:cNvPr id="0" name="Signature"/><pic:cNvPicPr/></pic:nvPicPr>'
+            . '<pic:blipFill><a:blip r:embed="' . $relationshipId . '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            . '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $widthEmu . '" cy="' . $heightEmu . '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+            . '</pic:pic>'
+            . '</a:graphicData>'
+            . '</a:graphic>'
+            . '</wp:inline>'
+            . '</w:drawing></w:r>';
+    }
+
+    private function injectSignatureIntoLodHtml(string $html, string $signatureDataUrl): string
+    {
+        $signatureImg = '<img src="' . htmlspecialchars($signatureDataUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" alt="Signature" style="display:inline-block;max-width:220px;max-height:90px;vertical-align:middle;" />';
+
+        if (strpos($html, '[SIGNED_IMAGE]') !== false) {
+            return str_replace('[SIGNED_IMAGE]', $signatureImg, $html);
+        }
+
+        // Fallback in case placeholder is altered by template edits.
+        if (strpos($html, '[SIGNED IMAGE]') !== false) {
+            return str_replace('[SIGNED IMAGE]', $signatureImg, $html);
+        }
+
+        return $html;
     }
 
     public function syncLodWorkbook(array $formData = []): string
@@ -925,7 +1617,7 @@ XML;
     private function buildLodVariables(array $formData): array
     {
         $defaults = [
-            'Date' => date('j M Y'),
+                'Date' => date('Y-m-d'),
             'YourCompanyName' => '',
             'YourCompanyAddressLine1' => '',
             'YourCompanyAddressLine2' => '',
@@ -963,6 +1655,9 @@ XML;
             'ImageUploadDetails' => '',
             'AdditionalPublicationDetails' => '',
             'ReshareDetails' => '',
+            'Signed' => '',
+            'SignedImageDataUrl' => '',
+            'LegalClient' => '',
             'MainSocialAccount' => '',
             'DeliveryByRegisteredPost' => true,
             'DeliveryByHand' => false,
@@ -976,6 +1671,12 @@ XML;
         foreach ($defaults as $key => $defaultValue) {
             if (array_key_exists($key, $formData)) {
                 $variables[$key] = $formData[$key];
+                continue;
+            }
+
+            $placeholderKey = '{{' . $key . '}}';
+            if (array_key_exists($placeholderKey, $formData)) {
+                $variables[$key] = $formData[$placeholderKey];
             }
         }
 
@@ -1022,44 +1723,129 @@ XML;
             $variables[$placeholderLabel] = sprintf('[%s] %s', $isChecked ? 'x' : ' ', $label);
         }
 
+        if (is_string($variables['Signed'] ?? null) && preg_match('~^data:image/~i', (string) $variables['Signed'])) {
+            // Avoid leaking raw data URLs into generated DOCX/XML text.
+            $variables['Signed'] = '';
+        }
+
+        if (trim((string) ($variables['Signed'] ?? '')) === '' && trim((string) ($variables['SignedImageDataUrl'] ?? '')) !== '') {
+            $variables['Signed'] = '[Signed Image]';
+        }
+
         return $variables;
     }
 
     private function buildWritVariables(array $formData): array
     {
-        $keys = [
-            'Date',
-            'CourtName',
-            'CourtLocation',
-            'CaseNumber',
-            'PlaintiffName',
-            'PlaintiffNRIC',
-            'PlaintiffAddressLine1',
-            'PlaintiffAddressLine2',
-            'DefendantName',
-            'DefendantNRIC',
-            'DefendantAddressLine1',
-            'DefendantAddressLine2',
-            'ClaimAmount',
-            'Currency',
-            'ClaimDescription',
-            'ContractDate',
-            'BreachDetails',
-            'InterestRate',
-            'CostsAmount',
-            'LawyerName',
-            'LawFirmName',
-            'LawFirmAddress',
-            'LawyerPhone',
-            'LawyerEmail',
-            'AppearanceDays',
-            'HearingDate',
-            'CourtSealReference',
+        $defaults = [
+            'WritCourtHeading1' => 'DALAM MAHKAMAH MAJISTRET DI SHAH ALAM',
+            'WritCourtHeading2' => 'DALAM NEGERI SELANGOR DARUL EHSAN, MALAYSIA',
+            'WritCaseNoLabel' => 'GUAMAN NO:',
+            'WritCaseNumber' => '',
+            'WritCaseYear' => (string) date('Y'),
+            'PlaintiffName' => '',
+            'PlaintiffNRIC' => '',
+            'Defendant1Name' => '',
+            'Defendant1NRIC' => '',
+            'Defendant2Name' => '',
+            'Defendant2NRIC' => '',
+            'Defendant1Address' => '',
+            'Defendant2Address' => '',
+            'AppearanceDays' => '14',
+            'RegistrarCourt' => 'Mahkamah Majistret Shah Alam',
+            'WitnessDay' => '',
+            'WitnessMonth' => '',
+            'WitnessYear' => (string) date('Y'),
+            'PlaintiffSolicitor' => '',
+            'PlaintiffFirmName' => 'Tetuan Adnan Sharida & Associates',
+            'PlaintiffFirmAddress' => '',
+            'GeneralDamagesAmount' => '40,200.00',
+            'SpecialDamagesText' => 'Gantirugi Khas',
+            'InterestRate' => '5',
+            'InterestFromText' => 'dari tarikh penghakiman sehingga penyelesaian penuh',
+            'CostsActionText' => 'Kos tindakan',
+            'OtherReliefText' => 'Apa-apa relif yang difikirkan sesuai dan adil oleh mahkamah',
+            'InitialCostsAmount' => '225.00',
+            'SubstitutedServiceCostsAmount' => '60.00',
+            'ServiceOfficer' => '',
+            'ServiceMethod' => '',
+            'ServiceKnownBy' => '',
+            'ServiceAt' => '',
+            'ServiceOnDate' => '',
+            'EndorsementDate' => '',
+            'ServerName' => '',
+            'FilingFirmAddress' => '',
+            'FilingFirmTel' => '',
+            'FilingFirmEmail' => '',
+            'FilingReference' => '',
+            'Signed' => '',
+            'SignedImageDataUrl' => '',
+
+            // Legacy compatibility keys
+            'Date' => date('j M Y'),
+            'CourtName' => 'Mahkamah Majistret',
+            'CourtLocation' => 'Shah Alam',
+            'StateName' => 'Selangor Darul Ehsan, Malaysia',
+            'CaseNumber' => '',
+            'CaseYear' => (string) date('Y'),
+            'DefendantName' => '',
+            'DefendantNRIC' => '',
+            'DefendantAddressLine1' => '',
+            'DefendantAddressLine2' => '',
+            'Defendant2AddressLine1' => '',
+            'Defendant2AddressLine2' => '',
+            'ClaimAmount' => '40200.00',
+            'Currency' => 'RM',
+            'ClaimDescription' => 'Pernyataan Tuntutan',
+            'LawyerName' => '',
+            'LawFirmName' => 'Tetuan Adnan Sharida & Associates',
+            'LawFirmAddress' => '',
+            'LawyerPhone' => '',
+            'LawyerEmail' => '',
+            'CourtSealReference' => '',
+            'ServiceServerName' => '',
+            'ServiceLocation' => '',
+            'ServiceDate' => '',
+            'WitnessedCourt' => 'Mahkamah Majistret Shah Alam',
+            'ReferenceCode' => '',
         ];
 
-        $variables = [];
-        foreach ($keys as $key) {
-            $variables[$key] = (string) ($formData[$key] ?? '');
+        $variables = $defaults;
+        foreach ($defaults as $key => $defaultValue) {
+            if (array_key_exists($key, $formData)) {
+                $variables[$key] = (string) $formData[$key];
+                continue;
+            }
+
+            $placeholderKey = '{{' . $key . '}}';
+            if (array_key_exists($placeholderKey, $formData)) {
+                $variables[$key] = (string) $formData[$placeholderKey];
+            }
+        }
+
+        // New -> legacy mapping
+        $variables['CaseNumber'] = $variables['CaseNumber'] ?: $variables['WritCaseNumber'];
+        $variables['CaseYear'] = $variables['CaseYear'] ?: $variables['WritCaseYear'];
+        $variables['DefendantName'] = $variables['DefendantName'] ?: $variables['Defendant1Name'];
+        $variables['DefendantNRIC'] = $variables['DefendantNRIC'] ?: $variables['Defendant1NRIC'];
+        if ($variables['DefendantAddressLine1'] === '' && $variables['Defendant1Address'] !== '') {
+            $variables['DefendantAddressLine1'] = $variables['Defendant1Address'];
+        }
+        if ($variables['Defendant2AddressLine1'] === '' && $variables['Defendant2Address'] !== '') {
+            $variables['Defendant2AddressLine1'] = $variables['Defendant2Address'];
+        }
+        $variables['LawFirmName'] = $variables['LawFirmName'] ?: $variables['PlaintiffFirmName'];
+        $variables['LawFirmAddress'] = $variables['LawFirmAddress'] ?: ($variables['PlaintiffFirmAddress'] ?: $variables['FilingFirmAddress']);
+        $variables['LawyerPhone'] = $variables['LawyerPhone'] ?: $variables['FilingFirmTel'];
+        $variables['LawyerEmail'] = $variables['LawyerEmail'] ?: $variables['FilingFirmEmail'];
+        $variables['ReferenceCode'] = $variables['ReferenceCode'] ?: $variables['FilingReference'];
+        $variables['ServiceServerName'] = $variables['ServiceServerName'] ?: $variables['ServiceOfficer'];
+        $variables['ServiceLocation'] = $variables['ServiceLocation'] ?: $variables['ServiceAt'];
+        $variables['ServiceDate'] = $variables['ServiceDate'] ?: $variables['ServiceOnDate'];
+        $variables['WitnessedCourt'] = $variables['WitnessedCourt'] ?: $variables['RegistrarCourt'];
+
+        if (trim((string) $variables['Signed']) === '' && trim((string) $variables['SignedImageDataUrl']) !== '') {
+            $variables['Signed'] = '[SIGNED_IMAGE]';
         }
 
         return $variables;

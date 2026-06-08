@@ -22,6 +22,7 @@ class AslawLog extends Model
         'severity',
         'service',
         'module',
+        'interaction',
         'ip',
         'user_agent',
         'query',

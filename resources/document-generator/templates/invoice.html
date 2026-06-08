@@ -7,18 +7,20 @@
     * { box-sizing: border-box; }
     body { margin: 0; font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; color: #1f2937; padding: 18px; background: #f5f7fb; }
     table { border-collapse: collapse; width: 100%; }
-    .top-banner { background: #000000; color: #ffffff; padding: 12px 16px; margin-bottom: 10px; border: 1px solid #000000; overflow: hidden; }
+    .top-banner { background: #000000; color: #ffffff; padding: 16px 18px; margin-bottom: 12px; border: 1px solid #000000; overflow: hidden; }
     .top-banner table { width: 100%; table-layout: fixed; }
     .top-banner td { vertical-align: middle; }
-    .top-banner .logo-cell { width: 48%; }
+    .top-banner .logo-cell { width: 50%; }
     .top-banner .logo-cell { overflow: hidden; }
-    .top-banner .logo-cell img { display: block; max-width: 100%; max-height: 34px; width: auto; height: auto; object-fit: contain; }
+    .top-banner .logo-cell img { display: block; max-width: 100%; max-height: 56px; width: auto; height: auto; object-fit: contain; }
     .top-banner .logo-cell .brand-text { font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; font-weight: bold; }
-    .top-banner .tagline-cell { width: 52%; text-align: right; }
-    .top-banner .tagline { font-size: 10px; opacity: 0.92; letter-spacing: 0.4px; font-weight: bold; }
-    .top-banner .contact-line { margin-top: 4px; font-size: 9px; opacity: 0.8; letter-spacing: 0.3px; }
+    .top-banner .tagline-cell { width: 50%; text-align: right; }
+    .top-banner .tagline { font-size: 14px; opacity: 0.98; letter-spacing: 0.2px; font-weight: bold; }
+    .top-banner .contact-line { margin-top: 6px; font-size: 12px; opacity: 0.92; letter-spacing: 0.2px; }
     .main { border: 1px solid #d7dee8; background: #ffffff; }
-    .header td { background: #111827; color: #ffffff; padding: 18px 20px; vertical-align: top; border-bottom: 2px solid #d6b26e; }
+    .header-wrap { background: #111827; color: #ffffff; border-bottom: 2px solid #d6b26e; }
+    .header-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .header-table td { background: #111827; color: #ffffff; padding: 18px 20px; vertical-align: top; }
     .title { font-size: 24px; letter-spacing: 1px; font-weight: bold; }
     .subtitle { margin-top: 4px; font-size: 11px; opacity: 0.9; }
     .meta { text-align: right; font-size: 11px; line-height: 1.6; }
@@ -43,60 +45,63 @@
     .amounts tr.head td { background: #f3f6fb; border-top: none; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: bold; color: #6b7280; }
     .amounts tr.alt td { background: #f9fbfe; }
     .amounts tr.total td { background: #111827; color: #ffffff; font-size: 14px; font-weight: bold; border-top: 1px solid #111827; }
-    .footer td { padding: 16px 20px; text-align: center; font-size: 10px; color: #6b7280; border-top: 1px solid #edf1f6; }
+    .footer { padding: 24px 20px 14px 20px; margin-top: 8px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #edf1f6; }
 </style>
 </head>
 <body>
-    <div class="top-banner">
+    <div class="top-banner" style="background:#000000;color:#ffffff;padding:16px 18px;margin-bottom:12px;border:1px solid #000000;overflow:hidden;">
         <table>
             <tr>
                 <td class="logo-cell">{{brandLogoHtml}}</td>
                 <td class="tagline-cell">
-                    <div class="tagline">{{brandTagline}}</div>
-                    <div class="contact-line">{{brandContactLine}}</div>
+                    <div class="tagline" style="font-size:16px;opacity:1;letter-spacing:0.2px;font-weight:bold;line-height:1.2;">{{brandTagline}}</div>
+                    <div class="contact-line" style="margin-top:8px;font-size:13px;opacity:1;letter-spacing:0.2px;line-height:1.25;">{{brandContactLine}}</div>
                 </td>
             </tr>
         </table>
     </div>
 
-    <table class="main">
-        <tr class="header">
-            <td style="width:60%;">
-                <div class="title">{{invoiceTitle}}</div>
-                <div class="subtitle">{{stage}} {{paymentLabel}}</div>
-            </td>
-            <td style="width:40%;" class="meta">
-                <strong>#{{invoiceNum}}</strong><br>
-                {{issuedLabel}}: {{issueDate}}<br>
-                {{dueDate}}
-            </td>
-        </tr>
+    <div class="main" style="border:1px solid #d7dee8;background:#ffffff;width:100%;">
+        <div class="header-wrap" style="background:#111827;color:#ffffff;border-bottom:2px solid #d6b26e;width:100%;">
+            <table class="header-table" width="100%" border="0" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;table-layout:fixed;">
+                <tr>
+                    <td width="60%" bgcolor="#111827" style="width:60%;background:#111827;color:#ffffff;padding:18px 20px;vertical-align:top;">
+                        <div class="title">{{invoiceTitle}}</div>
+                        <div class="subtitle">{{stage}} {{paymentLabel}}</div>
+                    </td>
+                    <td width="40%" bgcolor="#d6b26e" align="right" style="width:40%;background:#d6b26e;color:#ffffff;padding:18px 20px;vertical-align:top;text-align:right;font-size:11px;line-height:1.6;" class="meta">
+                        <strong style="display:inline-block;padding:6px 12px;color:#ffffff;font-size:22px;line-height:1.1;letter-spacing:0.4px;">#{{invoiceNum}}</strong><br>
+                        {{issuedLabel}}: {{issueDate}}<br>
+                        {{dueDate}}
+                    </td>
+                </tr>
+            </table>
+        </div>
 
-        <tr>
-            <td colspan="2" style="padding: 12px 18px 10px 18px;">
-                <table class="invoice-data">
-                    <tr class="head"><td class="left">Description</td><td class="right">Amount</td></tr>
-                    <tr><td class="left">Invoice Number</td><td class="right">#{{invoiceNum}}</td></tr>
-                    <tr class="alt"><td class="left">{{issuedLabel}}</td><td class="right">{{issueDate}}</td></tr>
-                    <tr><td class="left">Due</td><td class="right">{{dueDateValue}}</td></tr>
-                    <tr class="alt"><td class="left">{{billedToLabel}}</td><td class="right">{{clientName}}</td></tr>
-                    <tr><td class="left">{{matterLabel}}</td><td class="right">{{caseTitle}}</td></tr>
-                    <tr class="alt"><td class="left">{{typeOfWorkLabel}}</td><td class="right">{{typeOfWork}}</td></tr>
-                    <tr><td class="left">{{expectedAmountLabel}}</td><td class="right">{{expected}}</td></tr>
-                    <tr class="alt"><td class="left">{{paidAmountLabel}}</td><td class="right">{{paid}}</td></tr>
-                    <tr><td class="left">{{typeOfWorkBalanceLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
-                    <tr class="alt"><td class="left">{{phaseBalanceLabel}}</td><td class="right">{{phaseBalance}}</td></tr>
-                    <tr><td class="left">{{taxLabel}}</td><td class="right">{{tax}}</td></tr>
-                    <tr class="alt"><td class="left">{{discountLabel}}</td><td class="right">{{discount}}</td></tr>
-                    <tr><td class="left">{{totalLabel}}</td><td class="right">{{total}}</td></tr>
-                    <tr class="total"><td class="left">{{amountDueLabel}}</td><td class="right">{{typeOfWorkBalance}}</td></tr>
+        <div style="padding:12px 18px 10px 18px; width:100%;">
+            <table class="invoice-data" border="1" cellspacing="0" cellpadding="0" width="100%" style="width:100%;border-collapse:collapse;border:1px solid #6b7280;table-layout:fixed;">
+                    <tr class="head">
+                        <td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#6b7280;font-weight:bold;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">Description</td>
+                        <td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#6b7280;font-weight:bold;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;">Amount</td>
+                    </tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">Invoice Number</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">#{{invoiceNum}}</td></tr>
+                    <tr class="alt"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{issuedLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{issueDate}}</td></tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">Due</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{dueDateValue}}</td></tr>
+                    <tr class="alt"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{billedToLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{clientName}}</td></tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{matterLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{caseTitle}}</td></tr>
+                    <tr class="alt"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{typeOfWorkLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{typeOfWork}}</td></tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{expectedAmountLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{expected}}</td></tr>
+                    <tr class="alt"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{paidAmountLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{paid}}</td></tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{typeOfWorkBalanceLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{typeOfWorkBalance}}</td></tr>
+                    <tr class="alt"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{phaseBalanceLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{phaseBalance}}</td></tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{taxLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{tax}}</td></tr>
+                    <tr class="alt"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{discountLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{discount}}</td></tr>
+                    <tr><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#374151;font-weight:600;">{{totalLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;">{{total}}</td></tr>
+                    <tr class="total"><td class="left" style="width:42%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;font-weight:bold;">{{amountDueLabel}}</td><td class="right" style="width:58%;border:1px solid #6b7280;padding:10px 12px;color:#1f2937;font-weight:bold;">{{typeOfWorkBalance}}</td></tr>
                 </table>
-            </td>
-        </tr>
+        </div>
 
-        <tr class="footer">
-            <td colspan="2">{{footer}}</td>
-        </tr>
-    </table>
+        <div class="footer" style="padding:28px 20px 16px 20px;margin-top:12px;text-align:center;font-size:12px;color:#6b7280;border-top:1px solid #edf1f6;">{{footer}}</div>
+    </div>
 </body>
 </html>

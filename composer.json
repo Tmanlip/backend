@@ -15,7 +15,8 @@
         "laravel/tinker": "^2.10.1",
         "microsoft/azure-storage-blob": "^1.5",
         "microsoft/azure-storage-common": "^1.5",
-        "mongodb/laravel-mongodb": "^5.5"
+        "mongodb/laravel-mongodb": "^5.5",
+        "mtownsend/remove-bg": "^2.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

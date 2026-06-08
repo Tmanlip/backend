@@ -44,6 +44,7 @@ Route::middleware('throttle:api')->group(function () {
         Route::post('/generate-lod-pdf', [DocumentGeneratorController::class, 'generateLodPdf']);
         Route::post('/generate-lod-data-xlsx', [DocumentGeneratorController::class, 'generateLodDataXlsx']);
         Route::post('/generate-writ-docx', [DocumentGeneratorController::class, 'generateWritDocx']);
+        Route::post('/generate-writ-pdf', [DocumentGeneratorController::class, 'generateWritPdf']);
         Route::post('/generate-invoice-docx', [DocumentGeneratorController::class, 'generateInvoiceDocx']);
         Route::post('/generate-invoice-pdf', [DocumentGeneratorController::class, 'generateInvoicePdf']);
         Route::post('/generate-writ-data-xlsx', [DocumentGeneratorController::class, 'generateWritDataXlsx']);

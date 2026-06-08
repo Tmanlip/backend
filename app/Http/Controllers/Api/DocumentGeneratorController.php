@@ -181,6 +181,27 @@ class DocumentGeneratorController extends Controller
         }
     }
 
+    public function generateWritPdf(Request $request)
+    {
+        $formData = (array) $request->input('formData', []);
+
+        try {
+            $file = $this->service->generateWritPdf($formData);
+
+            return response($file['buffer'], Response::HTTP_OK, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="' . $file['filename'] . '"',
+            ]);
+        } catch (\Throwable $error) {
+            logger()->error('Document generator Writ PDF generation failed.', [
+                'message' => $error->getMessage(),
+                'exception' => $error::class,
+            ]);
+
+            return response()->json(['error' => 'Failed to generate Writ PDF'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
     public function generateInvoiceDocx(Request $request)
     {
         $validated = $request->validate([

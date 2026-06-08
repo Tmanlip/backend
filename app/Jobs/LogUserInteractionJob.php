@@ -95,6 +95,7 @@ class LogUserInteractionJob implements ShouldQueue
             $path = (string) ($data['path'] ?? '');
             $data['service'] = 'aslaw-backend';
             $data['module'] = LogClassification::deriveModule($path);
+            $data['interaction'] = LogClassification::deriveInteraction($method, $path);
             $data['severity'] = LogClassification::deriveSeverity($statusCode, $method, $path);
 
             AslawLog::create($data);

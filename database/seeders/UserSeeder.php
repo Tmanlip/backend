@@ -91,7 +91,7 @@ class UserSeeder extends Seeder
             // Clients
             [
                 'name' => 'Client One',
-                'email' => 'client1@example.com',
+                'email' => 'taimanaliff@gmail.com',
                 'username' => 'client1',
                 'password' => 'password123',
                 'role' => 'client',

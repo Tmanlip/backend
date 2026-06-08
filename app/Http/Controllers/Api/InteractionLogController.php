@@ -33,6 +33,7 @@ class InteractionLogController extends Controller
                 'method',
                 'path',
                 'status_code',
+                'interaction',
                 'ip',
                 'created_at',
             ])
@@ -40,6 +41,7 @@ class InteractionLogController extends Controller
                 $statusCode = (int) ($log->status_code ?? 0);
                 $method = (string) ($log->method ?? '');
                 $path = (string) ($log->path ?? '');
+                $interaction = (string) ($log->interaction ?? LogClassification::deriveInteraction($method, $path));
 
                 return [
                     '_id' => $log->_id,
@@ -48,6 +50,7 @@ class InteractionLogController extends Controller
                     'email' => $log->email,
                     'method' => $method,
                     'path' => $path,
+                    'interaction' => $interaction,
                     'status_code' => $statusCode,
                     'ip' => $log->ip,
                     'created_at' => $log->created_at,
