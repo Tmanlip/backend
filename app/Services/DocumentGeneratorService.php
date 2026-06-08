@@ -628,6 +628,8 @@ class DocumentGeneratorService
         $total      = $fmt($v['total_amount'] ?? '');
         $typeOfWorkBalance = $fmt($v['balance'] ?? '');
         $phaseBalance = $fmt($v['phase_balance'] ?? '');
+        $bankName = $esc($v['bank_name'] ?? 'Bank Muamalat Malaysia Berhad');
+        $bankAccountNo = $esc($v['bank_account_no'] ?? '1210-0000080-71-0');
         $invoiceTitle = $choose('INVOICE', 'INVOIS');
         $paymentLabel = $choose('Payment', 'Bayaran');
         $issuedLabel = $choose('Issued', 'Dikeluarkan');
@@ -666,6 +668,8 @@ class DocumentGeneratorService
             '{{issueDate}}' => $issueDate,
             '{{dueDate}}' => $dueDate,
             '{{dueDateValue}}' => $dueDateValue,
+            '{{bankName}}' => $bankName,
+            '{{bankAccountNo}}' => $bankAccountNo,
             '{{billedToLabel}}' => $billedToLabel,
             '{{clientName}}' => $clientName,
             '{{matterLabel}}' => $matterLabel,
@@ -1033,11 +1037,9 @@ XML;
         if (! is_string($pdfBuffer) || $pdfBuffer === '') {
             $html = $this->renderDocxBufferAsHtml($docx['buffer']);
             if (! is_string($html) || trim($html) === '') {
-                throw new RuntimeException(
-                    'Unable to generate LOD PDF. LibreOffice conversion failed'
-                    . ($conversionErrorMessage ? ': ' . $conversionErrorMessage : '.')
-                    . ' Docx-to-HTML fallback produced empty content.'
-                );
+                // Some LOD templates store most content in regions this extractor cannot read.
+                // Keep PDF generation available by falling back to a deterministic HTML render.
+                $html = $this->buildLodFallbackHtmlFromVariables($this->buildLodVariables($formData));
             }
 
             $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
@@ -1047,6 +1049,62 @@ XML;
             'buffer' => $pdfBuffer,
             'filename' => 'LOD_Template_work.pdf',
         ];
+    }
+
+    private function buildLodFallbackHtmlFromVariables(array $variables): string
+    {
+        $esc = static fn($value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $line = static fn(string $value): string => nl2br($esc(trim($value)), false);
+
+        $fields = [
+            'Date' => $variables['Date'] ?? '',
+            'YourCompanyName' => $variables['YourCompanyName'] ?? '',
+            'YourCompanyAddressLine1' => $variables['YourCompanyAddressLine1'] ?? '',
+            'YourCompanyAddressLine2' => $variables['YourCompanyAddressLine2'] ?? '',
+            'RecipientName' => $variables['RecipientName'] ?? '',
+            'RecipientCompanyName' => $variables['RecipientCompanyName'] ?? '',
+            'RecipientAddressLine1' => $variables['RecipientAddressLine1'] ?? '',
+            'RecipientAddressLine2' => $variables['RecipientAddressLine2'] ?? '',
+            'RecipientSalutation' => $variables['RecipientSalutation'] ?? '',
+            'Reference' => $variables['Reference'] ?? '',
+            'ClientName' => $variables['ClientName'] ?? '',
+            'CaseDescription' => $variables['CaseDescription'] ?? '',
+            'BackgroundFacts' => $variables['BackgroundFacts'] ?? '',
+            'DefamationActs' => $variables['DefamationActs'] ?? '',
+            'DefamatoryStatementsDetails' => $variables['DefamatoryStatementsDetails'] ?? '',
+            'ImageUploadDetails' => $variables['ImageUploadDetails'] ?? '',
+            'AdditionalPublicationDetails' => $variables['AdditionalPublicationDetails'] ?? '',
+            'ReshareDetails' => $variables['ReshareDetails'] ?? '',
+            'LegalClient' => $variables['LegalClient'] ?? '',
+            'Signed' => $variables['Signed'] ?? '',
+        ];
+
+        $rows = [];
+        foreach ($fields as $label => $value) {
+            $text = trim((string) $value);
+            if ($text === '') {
+                continue;
+            }
+
+            $rows[] = '<tr><th>' . $esc($label) . '</th><td>' . $line($text) . '</td></tr>';
+        }
+
+        if ($rows === []) {
+            $rows[] = '<tr><th>Notice</th><td>No content was provided for this LOD preview.</td></tr>';
+        }
+
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
+            . 'body{font-family:DejaVu Sans,Arial,sans-serif;font-size:12px;color:#111827;padding:24px;}'
+            . 'h1{font-size:18px;margin:0 0 12px;}'
+            . 'p{margin:0 0 10px;line-height:1.55;}'
+            . 'table{width:100%;border-collapse:collapse;margin-top:12px;}'
+            . 'th,td{border:1px solid #d1d5db;padding:8px 10px;vertical-align:top;text-align:left;}'
+            . 'th{width:32%;background:#f9fafb;font-weight:700;}'
+            . '</style></head><body>'
+            . '<h1>Letter of Demand</h1>'
+            . '<p>This fallback preview was generated because DOCX extraction returned no readable body content.</p>'
+            . '<table><tbody>' . implode('', $rows) . '</tbody></table>'
+            . '</body></html>';
     }
 
     public function generateWritPdf(array $formData = []): array
