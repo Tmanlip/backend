@@ -974,74 +974,97 @@ XML;
     public function generateLodPdf(array $formData = []): array
     {
         $signatureDataUrl = $this->sanitizeSignatureDataUrl((string) ($formData['SignedImageDataUrl'] ?? ''));
-        $docx = null;
+
+        // ── Signature path ──────────────────────────────────────────────────────
         if ($signatureDataUrl !== null) {
-            $lodFormData = $formData;
-            $lodFormData['Signed'] = '[SIGNED_IMAGE]';
-            $docxWithMarker = $this->generateLodDocx($lodFormData);
-
             try {
-                $docxWithSignature = $this->embedSignatureImageIntoDocxBuffer($docxWithMarker['buffer'], $signatureDataUrl);
-                $pdfWithSignature = $this->convertDocxBufferToPdf($docxWithSignature);
+                $lodFormData = $formData;
+                $lodFormData['Signed'] = '[SIGNED_IMAGE]';
+                $docxWithMarker = $this->generateLodDocx($lodFormData);
 
-                return [
-                    'buffer' => $pdfWithSignature,
-                    'filename' => 'LOD_Template_work.pdf',
-                ];
-            } catch (\Throwable $signatureError) {
-                logger()->warning('LOD signature embedding via DOCX failed; trying fallback path.', [
-                    'message' => $signatureError->getMessage(),
-                    'exception' => $signatureError::class,
-                ]);
+                try {
+                    $docxWithSignature = $this->embedSignatureImageIntoDocxBuffer($docxWithMarker['buffer'], $signatureDataUrl);
+                    $pdfWithSignature = $this->convertDocxBufferToPdf($docxWithSignature);
 
-                if (extension_loaded('gd')) {
-                    try {
-                        $html = $this->renderDocxBufferAsHtml($docxWithMarker['buffer']);
-                        if (is_string($html) && trim($html) !== '') {
-                            $htmlWithSignature = $this->injectSignatureIntoLodHtml($html, $signatureDataUrl);
-                            $pdfWithSignature = $this->renderInvoiceHtmlToPdf($htmlWithSignature);
+                    return [
+                        'buffer' => $pdfWithSignature,
+                        'filename' => 'LOD_Template_work.pdf',
+                    ];
+                } catch (\Throwable $signatureError) {
+                    logger()->warning('LOD signature embedding via DOCX failed; trying fallback path.', [
+                        'message' => $signatureError->getMessage(),
+                        'exception' => $signatureError::class,
+                    ]);
 
-                            return [
-                                'buffer' => $pdfWithSignature,
-                                'filename' => 'LOD_Template_work.pdf',
-                            ];
+                    if (extension_loaded('gd')) {
+                        try {
+                            $html = $this->renderDocxBufferAsHtml($docxWithMarker['buffer']);
+                            if (is_string($html) && trim($html) !== '') {
+                                $htmlWithSignature = $this->injectSignatureIntoLodHtml($html, $signatureDataUrl);
+                                $pdfWithSignature = $this->renderInvoiceHtmlToPdf($htmlWithSignature);
+
+                                return [
+                                    'buffer' => $pdfWithSignature,
+                                    'filename' => 'LOD_Template_work.pdf',
+                                ];
+                            }
+                        } catch (\Throwable $htmlFallbackError) {
+                            logger()->warning('LOD signature HTML fallback failed.', [
+                                'message' => $htmlFallbackError->getMessage(),
+                                'exception' => $htmlFallbackError::class,
+                            ]);
                         }
-                    } catch (\Throwable $htmlFallbackError) {
-                        logger()->warning('LOD signature HTML fallback failed.', [
-                            'message' => $htmlFallbackError->getMessage(),
-                            'exception' => $htmlFallbackError::class,
-                        ]);
+                    } else {
+                        logger()->warning('LOD signature image was provided but GD is unavailable; HTML image fallback skipped.');
                     }
-                } else {
-                    logger()->warning('LOD signature image was provided but GD is unavailable; HTML image fallback skipped.');
                 }
+            } catch (\Throwable $docxSignatureError) {
+                // Template files may be missing in this environment; fall through to HTML path.
+                logger()->warning('LOD DOCX generation failed for signature path; falling back to HTML PDF.', [
+                    'message' => $docxSignatureError->getMessage(),
+                    'exception' => $docxSignatureError::class,
+                ]);
             }
         }
 
-        $docx = $this->generateLodDocx($formData);
-
+        // ── No-signature path ────────────────────────────────────────────────────
+        $docx = null;
         $pdfBuffer = null;
         $conversionErrorMessage = null;
 
         try {
-            $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
-        } catch (\Throwable $conversionError) {
-            $conversionErrorMessage = $conversionError->getMessage();
-
-            logger()->warning('LOD PDF LibreOffice conversion failed, falling back to Dompdf.', [
-                'message' => $conversionErrorMessage,
-                'exception' => $conversionError::class,
+            $docx = $this->generateLodDocx($formData);
+        } catch (\Throwable $docxError) {
+            // Template files are missing on this server; skip DOCX path entirely.
+            logger()->warning('LOD DOCX template generation failed; skipping LibreOffice conversion and using HTML fallback.', [
+                'message' => $docxError->getMessage(),
+                'exception' => $docxError::class,
             ]);
         }
 
-        if (! is_string($pdfBuffer) || $pdfBuffer === '') {
-            $html = $this->renderDocxBufferAsHtml($docx['buffer']);
-            if (! is_string($html) || trim($html) === '') {
-                // Some LOD templates store most content in regions this extractor cannot read.
-                // Keep PDF generation available by falling back to a deterministic HTML render.
-                $html = $this->buildLodFallbackHtmlFromVariables($this->buildLodVariables($formData));
+        if ($docx !== null) {
+            try {
+                $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+            } catch (\Throwable $conversionError) {
+                $conversionErrorMessage = $conversionError->getMessage();
+
+                logger()->warning('LOD PDF LibreOffice conversion failed, falling back to Dompdf.', [
+                    'message' => $conversionErrorMessage,
+                    'exception' => $conversionError::class,
+                ]);
             }
 
+            if (! is_string($pdfBuffer) || $pdfBuffer === '') {
+                $html = $this->renderDocxBufferAsHtml($docx['buffer']);
+                if (! is_string($html) || trim($html) === '') {
+                    $html = $this->buildLodFallbackHtmlFromVariables($this->buildLodVariables($formData));
+                }
+
+                $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
+            }
+        } else {
+            // Template missing — render directly from submitted form variables.
+            $html = $this->buildLodFallbackHtmlFromVariables($this->buildLodVariables($formData));
             $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
         }
 
