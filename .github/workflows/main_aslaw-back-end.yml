@@ -16,7 +16,6 @@ jobs:
       WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
       ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
       IMAGE_REPOSITORY: aslaw-backend
-      IMAGE_TAG: v1
 
     steps:
       - uses: actions/checkout@v4
@@ -53,14 +52,59 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Build image metadata
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "IMAGE_TAG=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${SHORT_SHA}" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME_LATEST=${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:latest" >> "$GITHUB_ENV"
+
+      - name: Build and push container image to ACR
+        run: |
+          ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
+          az acr login --name "$ACR_NAME"
+
+          docker build \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "$IMAGE_NAME" \
+            -t "$IMAGE_NAME_LATEST" \
+            .
+
+          docker push "$IMAGE_NAME"
+          docker push "$IMAGE_NAME_LATEST"
+
+      - name: Stamp deployed commit in app settings
+        run: |
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME" \
+            --settings APP_VERSION="$IMAGE_TAG" GIT_SHA="$GITHUB_SHA"
+
       - name: Update Web App container image (production)
         run: |
           az webapp config container set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --container-image-name "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+            --container-image-name "$IMAGE_NAME"
 
           az webapp restart \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME"
+
+      - name: Verify deployed image tag
+        run: |
+          DEPLOYED_IMAGE=$(az webapp config container show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME" \
+            --query "linuxFxVersion" -o tsv)
+
+          echo "Expected image: $IMAGE_NAME"
+          echo "Configured image: $DEPLOYED_IMAGE"
+
+          if [[ "$DEPLOYED_IMAGE" != *"$IMAGE_NAME"* ]]; then
+            echo "Deployment verification failed: configured container image does not match commit tag."
+            exit 1
+          fi
 
