@@ -93,6 +93,14 @@ class EncryptedDocumentController extends Controller
         );
 
         if (count($recipients) === 0) {
+            logger()->warning('Upload failed: no valid recipients could be resolved.', [
+                'case_id' => (int) $case->caseId,
+                'actor_id' => (int) $actor->id,
+                'actor_role' => strtolower((string) ($actor->role ?? '')),
+                'requested_recipient_ids' => $validated['recipient_user_ids'] ?? [],
+                'category' => $category,
+            ]);
+
             return response()->json(['message' => 'No valid recipients found'], 422);
         }
 
