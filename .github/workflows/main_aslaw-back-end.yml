@@ -44,8 +44,7 @@ jobs:
 
       - name: Log in to Azure Container Registry
         run: |
-          REGISTRY_NAME="${ACR_LOGIN_SERVER%%.*}"
-          az acr login --name "$REGISTRY_NAME"
+          az acr login --name appdocker
 
       - name: Build and push container image
         run: |
