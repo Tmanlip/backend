@@ -14,6 +14,7 @@ jobs:
     env:
       RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
       WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
+      SLOT_NAME: ${{ secrets.WEBAPP_SLOT }}
       ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
       IMAGE_REPOSITORY: aslaw-backend
 
@@ -87,26 +88,28 @@ jobs:
           az webapp config appsettings set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
+            --slot "$SLOT_NAME" \
             --settings APP_VERSION="$IMAGE_TAG" GIT_SHA="$GITHUB_SHA"
 
-      - name: Update Web App container image (production)
+      - name: Update Web App container image (slot)
         run: |
           az webapp config container set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --slot "staging" \
+            --slot "$SLOT_NAME" \
             --container-image-name "$IMAGE_NAME"
 
           az webapp restart \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --slot "staging"
+            --slot "$SLOT_NAME"
 
       - name: Verify deployed image tag
         run: |
           DEPLOYED_IMAGE=$(az webapp config container show \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
+            --slot "$SLOT_NAME" \
             --query "linuxFxVersion" -o tsv)
 
           echo "Expected image: $IMAGE_NAME"
