@@ -12,12 +12,9 @@ jobs:
     permissions:
       contents: read #This is required for actions/checkout
     env:
-      RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
-      WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
       ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
-      WEBAPP_SLOT: ${{ secrets.WEBAPP_SLOT }}
       IMAGE_REPOSITORY: aslaw-backend
-      IMAGE_TAG: v1
+      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -40,76 +37,21 @@ jobs:
       - name: Clear Config Cache
         run: php artisan config:clear && php artisan cache:clear && php artisan optimize:clear
 
-      - name: Zip artifact for deployment
-        run: zip -r release.zip . --exclude=".git/*" --exclude="*.github*"
-
-      - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v4
-        with:
-          name: php-app
-          path: release.zip
-
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build and push container image to ACR
+      - name: Log in to Azure Container Registry
         run: |
-          if [[ "$ACR_LOGIN_SERVER" != *".azurecr.io" ]]; then
-            echo "ACR_LOGIN_SERVER must be your Azure Container Registry login server (example: myregistry.azurecr.io)."
-            echo "Current value looks non-ACR and may cause Docker Hub scope errors."
-            exit 1
-          fi
+          REGISTRY_NAME="${ACR_LOGIN_SERVER%%.*}"
+          az acr login --name "$REGISTRY_NAME"
 
-          ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
-          az acr login --name "$ACR_NAME"
-          echo "Logged in to Azure Container Registry: $ACR_LOGIN_SERVER"
-
-          docker build \
-            --label org.opencontainers.image.revision="$GITHUB_SHA" \
-            --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -t "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
-            -t "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:latest" \
-            .
-
-          docker push "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
-          docker push "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:latest"
-
-      - name: Stamp deployed commit in app settings
+      - name: Build and push container image
         run: |
-          az webapp config appsettings set \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$WEBAPP_NAME" \
-            --settings APP_VERSION="$IMAGE_TAG" GIT_SHA="$GITHUB_SHA"
+          IMAGE_NAME="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          docker build -t "$IMAGE_NAME" .
+          docker push "$IMAGE_NAME"
 
-      - name: Update Web App container image (production)
-        run: |
-          az webapp config container set \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$WEBAPP_NAME" \
-            --slot "$WEBAPP_SLOT" \
-            --container-image-name "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
-
-          az webapp restart \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$WEBAPP_NAME" \
-            --slot "$WEBAPP_SLOT"
-
-      - name: Verify deployed image tag
-        run: |
-          DEPLOYED_IMAGE=$(az webapp config container show \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$WEBAPP_NAME" \
-            --slot "$WEBAPP_SLOT" \
-            --query "linuxFxVersion" -o tsv)
-
-          echo "Expected image: ${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
-          echo "Configured image: $DEPLOYED_IMAGE"
-
-          if [[ "$DEPLOYED_IMAGE" != *"${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"* ]]; then
-            echo "Deployment verification failed: configured container image does not match commit tag."
-            exit 1
-          fi
-
+      - name: Print published image
+        run: echo "Published image ${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
