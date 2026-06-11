@@ -353,6 +353,12 @@ class EncryptedDocumentController extends Controller
 
         $document = FileMetadata::find($documentId);
         if (!$document || $document->type !== 'encrypted_document') {
+            logger()->warning('Review failed: encrypted document not found.', [
+                'document_id' => (string) $documentId,
+                'actor_id' => (int) ($actor->id ?? 0),
+                'actor_role' => $role,
+            ]);
+
             return response()->json(['message' => 'Document not found'], 404);
         }
 
