@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use MicrosoftAzure\Storage\Common\Exceptions\ServiceException;
 use MicrosoftAzure\Storage\Blob\BlobRestProxy;
 use MicrosoftAzure\Storage\Blob\Models\CreateBlockBlobOptions;
@@ -16,21 +17,41 @@ class AzureStorage
     /** @var array<string, bool> */
     protected static array $containerCreationAttempted = [];
 
+    protected static bool $diagnosticsLogged = false;
+
     protected static function client()
     {
-        $connectionString = env('AZURE_STORAGE_CONNECTION_STRING');
+        $connectionString = trim((string) env('AZURE_STORAGE_CONNECTION_STRING', ''));
+        $accountName = trim((string) env('AZURE_STORAGE_NAME', ''));
+        $accountKey = trim((string) env('AZURE_STORAGE_KEY', ''));
+        $container = trim((string) env('AZURE_STORAGE_CONTAINER', ''));
+        $timeout = (int) env('AZURE_STORAGE_TIMEOUT', 10);
+        $connectTimeout = (int) env('AZURE_STORAGE_CONNECT_TIMEOUT', 5);
+
+        if (!self::$diagnosticsLogged) {
+            Log::info('Azure storage configuration summary.', [
+                'using_connection_string' => $connectionString !== '',
+                'account_name' => $accountName !== '' ? $accountName : null,
+                'key_present' => $accountKey !== '',
+                'container' => $container !== '' ? $container : null,
+                'timeout' => $timeout,
+                'connect_timeout' => $connectTimeout,
+            ]);
+
+            self::$diagnosticsLogged = true;
+        }
 
         if (empty($connectionString)) {
             $connectionString = sprintf(
                 'DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=core.windows.net',
-                env('AZURE_STORAGE_NAME'),
-                env('AZURE_STORAGE_KEY')
+                $accountName,
+                $accountKey
             );
         }
 
         return BlobRestProxy::createBlobService($connectionString, [
-            'timeout' => (int) env('AZURE_STORAGE_TIMEOUT', 10),
-            'connect_timeout' => (int) env('AZURE_STORAGE_CONNECT_TIMEOUT', 5),
+            'timeout' => $timeout,
+            'connect_timeout' => $connectTimeout,
         ]);
     }
 
