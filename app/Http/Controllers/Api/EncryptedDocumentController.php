@@ -153,7 +153,22 @@ class EncryptedDocumentController extends Controller
                 $category,
                 $uploadedFileName
             );
-            AzureStorage::put($blobPath, $encrypted['cipherText']);
+            try {
+                AzureStorage::put($blobPath, $encrypted['cipherText']);
+            } catch (\Throwable $e) {
+                logger()->warning('Encrypted document upload failed at Azure storage layer.', [
+                    'case_id' => (int) $case->caseId,
+                    'actor_id' => (int) ($actor->id ?? 0),
+                    'category' => $category,
+                    'blob_path' => $blobPath,
+                    'message' => $e->getMessage(),
+                    'exception' => $e::class,
+                ]);
+
+                return response()->json([
+                    'message' => 'Unable to upload document to storage right now. Please try again shortly.',
+                ], 503);
+            }
         }
 
         $recipientEntries = [];
@@ -367,9 +382,17 @@ class EncryptedDocumentController extends Controller
                 try {
                     AzureStorage::put($azureBlobPath, $cipherText);
                 } catch (\Throwable $e) {
+                    logger()->warning('Unable to upload approved pending document to Azure storage.', [
+                        'document_id' => (string) $document->getKey(),
+                        'case_id' => (int) $document->case_id,
+                        'blob_path' => $azureBlobPath,
+                        'message' => $e->getMessage(),
+                        'exception' => $e::class,
+                    ]);
+
                     return response()->json([
                         'message' => 'Unable to upload approved document to storage. Please try again.',
-                    ], 500);
+                    ], 503);
                 }
 
                 // Delete the local temp file after successful Azure upload.
@@ -398,7 +421,8 @@ class EncryptedDocumentController extends Controller
             ]);
         }
 
-        // Reject: remove from local temp storage or Azure.
+        // Reject: remove from local temp storage or Azure. Cleanup errors should not
+        // block the review action itself, otherwise admins get a generic 500.
         try {
             if ($isPendingLocal) {
                 $localRelPath = substr($currentBlobPath, strlen('pending://'));
@@ -407,9 +431,13 @@ class EncryptedDocumentController extends Controller
                 AzureStorage::delete($currentBlobPath);
             }
         } catch (\Throwable $e) {
-            return response()->json([
-                'message' => 'Unable to delete rejected document from storage. Document was not removed.',
-            ], 500);
+            logger()->warning('Rejected document cleanup failed; continuing to remove metadata.', [
+                'document_id' => (string) $document->getKey(),
+                'case_id' => (int) $document->case_id,
+                'blob_path' => $currentBlobPath,
+                'message' => $e->getMessage(),
+                'exception' => $e::class,
+            ]);
         }
 
         $documentId = (string) $document->getKey();

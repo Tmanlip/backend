@@ -1,4 +1,12 @@
 *
+!document-generator/
+document-generator/*
+!document-generator/templates/
+!document-generator/templates/**
+document-generator/_smoke/
+document-generator/templates/**/*_filled.xlsx
+document-generator/templates/**/_*.docx
+document-generator/templates/**/_*.pdf
 !private/
 !public/
 !.gitignore

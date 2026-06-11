@@ -13,6 +13,9 @@ class AzureStorage
     /** @var array<string, bool> */
     protected static array $containerChecked = [];
 
+    /** @var array<string, bool> */
+    protected static array $containerCreationAttempted = [];
+
     protected static function client()
     {
         $connectionString = env('AZURE_STORAGE_CONNECTION_STRING');
@@ -61,23 +64,42 @@ class AzureStorage
 
         $client->createContainer($container);
         self::$containerChecked[$container] = true;
+        self::$containerCreationAttempted[$container] = true;
+    }
+
+    protected static function isContainerMissing(
+        \Throwable $exception
+    ): bool {
+        $message = (string) $exception->getMessage();
+
+        return (int) $exception->getCode() === 404
+            || str_contains($message, 'ContainerNotFound')
+            || str_contains($message, 'The specified container does not exist');
     }
 
     public static function put(string $blobName, string $content): void
     {
         $client = self::client();
         $container = self::container();
-        self::ensureContainerExists($client, $container);
 
         $options = new CreateBlockBlobOptions();
         $attempts = max(1, (int) env('AZURE_STORAGE_UPLOAD_RETRIES', 2));
         $lastException = null;
+        $hasRetriedAfterContainerCheck = false;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
                 $client->createBlockBlob($container, $blobName, $content, $options);
+                self::$containerChecked[$container] = true;
                 return;
             } catch (\Throwable $e) {
+                if (! $hasRetriedAfterContainerCheck && self::isContainerMissing($e)) {
+                    self::ensureContainerExists($client, $container);
+                    $hasRetriedAfterContainerCheck = true;
+                    $attempt--;
+                    continue;
+                }
+
                 $lastException = $e;
                 if ($attempt < $attempts) {
                     usleep(200000 * $attempt);
