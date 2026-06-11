@@ -14,9 +14,10 @@ jobs:
     env:
       RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
       WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
-      SLOT_NAME: staging
       ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+      WEBAPP_SLOT: ${{ secrets.WEBAPP_SLOT }}
       IMAGE_REPOSITORY: aslaw-backend
+      IMAGE_TAG: v1
 
     steps:
       - uses: actions/checkout@v4
@@ -53,15 +54,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build image metadata
-        run: |
-          echo "IMAGE_TAG=$GITHUB_SHA" >> "$GITHUB_ENV"
-          echo "IMAGE_NAME=${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:$GITHUB_SHA" >> "$GITHUB_ENV"
-          echo "IMAGE_NAME_LATEST=${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:latest" >> "$GITHUB_ENV"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Build and push container image to ACR
         run: |
           if [[ "$ACR_LOGIN_SERVER" != *".azurecr.io" ]]; then
@@ -74,54 +66,49 @@ jobs:
           az acr login --name "$ACR_NAME"
           echo "Logged in to Azure Container Registry: $ACR_LOGIN_SERVER"
 
-      - name: Docker build and push (with layer cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
-            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:latest
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.created=${{ github.run_id }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          docker build \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+            -t "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:latest" \
+            .
+
+          docker push "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          docker push "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:latest"
 
       - name: Stamp deployed commit in app settings
         run: |
           az webapp config appsettings set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --slot "$SLOT_NAME" \
             --settings APP_VERSION="$IMAGE_TAG" GIT_SHA="$GITHUB_SHA"
 
-      - name: Update Web App container image (slot)
+      - name: Update Web App container image (production)
         run: |
           az webapp config container set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --slot "$SLOT_NAME" \
-            --container-image-name "$IMAGE_NAME"
+            --slot "$WEBAPP_SLOT" \
+            --container-image-name "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
 
           az webapp restart \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --slot "$SLOT_NAME"
+            --slot "$WEBAPP_SLOT"
 
       - name: Verify deployed image tag
         run: |
           DEPLOYED_IMAGE=$(az webapp config container show \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
-            --slot "$SLOT_NAME" \
+            --slot "$WEBAPP_SLOT" \
             --query "linuxFxVersion" -o tsv)
 
-          echo "Expected image: $IMAGE_NAME"
+          echo "Expected image: ${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
           echo "Configured image: $DEPLOYED_IMAGE"
 
-          if [[ "$DEPLOYED_IMAGE" != *"$IMAGE_NAME"* ]]; then
+          if [[ "$DEPLOYED_IMAGE" != *"${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"* ]]; then
             echo "Deployment verification failed: configured container image does not match commit tag."
             exit 1
           fi
