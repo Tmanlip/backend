@@ -18,9 +18,11 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-COPY . /var/www/html
+COPY composer.json composer.lock ./
 
 RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+COPY . /var/www/html
 
 RUN mkdir -p \
         /var/www/html/storage/framework/cache/data \
