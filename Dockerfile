@@ -20,9 +20,11 @@ WORKDIR /var/www/html
 
 COPY composer.json composer.lock ./
 
-RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-scripts
 
 COPY . /var/www/html
+
+RUN php artisan package:discover --ansi
 
 RUN mkdir -p \
         /var/www/html/storage/framework/cache/data \
