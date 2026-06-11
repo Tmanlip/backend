@@ -61,8 +61,15 @@ jobs:
 
       - name: Build and push container image to ACR
         run: |
+          if [[ "$ACR_LOGIN_SERVER" != *".azurecr.io" ]]; then
+            echo "ACR_LOGIN_SERVER must be your Azure Container Registry login server (example: myregistry.azurecr.io)."
+            echo "Current value looks non-ACR and may cause Docker Hub scope errors."
+            exit 1
+          fi
+
           ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
           az acr login --name "$ACR_NAME"
+          echo "Logged in to Azure Container Registry: $ACR_LOGIN_SERVER"
 
           docker build \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
@@ -87,11 +94,13 @@ jobs:
           az webapp config container set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$WEBAPP_NAME" \
+            --slot "staging" \
             --container-image-name "$IMAGE_NAME"
 
           az webapp restart \
             --resource-group "$RESOURCE_GROUP" \
-            --name "$WEBAPP_NAME"
+            --name "$WEBAPP_NAME" \
+            --slot "staging"
 
       - name: Verify deployed image tag
         run: |
