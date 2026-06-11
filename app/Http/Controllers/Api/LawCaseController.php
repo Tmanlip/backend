@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\FileMetadata;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Carbon\Carbon;
 
 class LawCaseController extends Controller
@@ -840,31 +841,52 @@ class LawCaseController extends Controller
                 ...$initialBalances,
             ]);
 
-            // Store metadata in MongoDB
-            $metadata = Metadata::storeCase(
-                (string) $case->caseId,
-                $lawyer->firmID,
-                $client->firmID
-            );
-
-            // Create Azure folders and metadata.txt
-            $azureController = new \App\Http\Controllers\AzureController();
-
-            $caseFolder = "cases/{$case->caseId}/";
-            $subFolders = ['documents', 'reports', 'invoices'];
-
-            // Create a small placeholder file for each subfolder
-            foreach ($subFolders as $folder) {
-                $blobName = $caseFolder . $folder . '/placeholder.txt';
-                $content = "This folder: {$folder} for case {$case->caseId}";
-                $azureController->createBlobFromString($blobName, $content);
+            $metadataWarning = null;
+            try {
+                Metadata::storeCase(
+                    (string) $case->caseId,
+                    $lawyer->firmID,
+                    $client->firmID
+                );
+            } catch (\Throwable $metadataError) {
+                $metadataWarning = 'Case created, but metadata sync is currently unavailable.';
+                Log::warning('Case metadata sync failed during creation', [
+                    'caseId' => $case->caseId,
+                    'error' => $metadataError->getMessage(),
+                ]);
             }
 
-            // Create metadata.txt in case folder
-            $metadataJson = json_encode($metadata->toArray(), JSON_PRETTY_PRINT);
-            $azureController->createBlobFromString($caseFolder . 'metadata.txt', $metadataJson);
-
             DB::commit();
+
+            $caseFolder = "cases/{$case->caseId}/";
+            $azureSetupWarning = null;
+            try {
+                // Azure folder bootstrap is non-critical; do not fail case creation if storage is unavailable.
+                $azureController = new \App\Http\Controllers\AzureController();
+                $subFolders = ['documents', 'reports', 'invoices'];
+
+                foreach ($subFolders as $folder) {
+                    $blobName = $caseFolder . $folder . '/placeholder.txt';
+                    $content = "This folder: {$folder} for case {$case->caseId}";
+                    $azureController->createBlobFromString($blobName, $content);
+                }
+
+                $azureController->createBlobFromString(
+                    $caseFolder . 'metadata.txt',
+                    json_encode([
+                        'case_id' => (string) $case->caseId,
+                        'lawyer_firm_id' => (string) $lawyer->firmID,
+                        'client_firm_id' => (string) $client->firmID,
+                        'generated_at' => now()->toIso8601String(),
+                    ], JSON_PRETTY_PRINT)
+                );
+            } catch (\Throwable $azureError) {
+                $azureSetupWarning = 'Case created, but Azure folder setup is unavailable right now.';
+                Log::warning('Azure bootstrap failed during case creation', [
+                    'caseId' => $case->caseId,
+                    'error' => $azureError->getMessage(),
+                ]);
+            }
 
             $case->load(['lawyer:id,name,email,role', 'client:id,name,email,role']);
             $actor = $this->resolveActor($request);
@@ -876,12 +898,29 @@ class LawCaseController extends Controller
             );
 
             return response()->json([
-                'message' => 'Case created successfully with Azure folders',
+                'message' => 'Case created successfully',
                 'caseId'  => $case->caseId,
                 'azureFolder' => $caseFolder,
+                'warnings' => array_values(array_filter([
+                    $metadataWarning,
+                    $azureSetupWarning,
+                ])),
                 'case' => $this->formatCasePayload($case, $actor)
             ], 201);
 
+        } catch (ValidationException $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (ModelNotFoundException $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Selected lawyer/client was not found with the required role.',
+            ], 422);
         } catch (\Throwable $e) {
             DB::rollBack();
 
