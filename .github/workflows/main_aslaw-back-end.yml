@@ -1,7 +1,4 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
-name: Build and deploy PHP app to Azure Web App - aslaw-back-end
+name: Build PHP app - aslaw-back-end
 
 on:
   push:
@@ -14,6 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read #This is required for actions/checkout
+    env:
+      RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+      WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+      IMAGE_REPOSITORY: aslaw-backend
+      IMAGE_TAG: v1
 
     steps:
       - uses: actions/checkout@v4
@@ -45,75 +48,19 @@ jobs:
           name: php-app
           path: release.zip
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
-
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: php-app
-      
-      - name: Login to Azure
+      - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_20917CE239484040B7C6EDC47A3A7D13 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_D0B5268FCC434C56926BCFC3C047879C }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_63619C9565D3491289AACA85ACEF8F97 }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Configure App Service startup for LibreOffice
-        continue-on-error: true
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            set -e
-
-            APP_NAME="aslaw-back-end"
-            RESOURCE_GROUP=$(az webapp list --query "[?name=='$APP_NAME'].resourceGroup | [0]" -o tsv)
-
-            if [ -z "$RESOURCE_GROUP" ]; then
-              echo "Resource group for $APP_NAME not found. Skipping startup configuration."
-              exit 0
-            fi
-
-            STARTUP_CMD="bash -lc 'if ! command -v soffice >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y libreoffice libreoffice-writer libreoffice-common fonts-dejavu; fi; export LIBREOFFICE_PATH=\$(command -v soffice || echo /usr/bin/soffice); exec /opt/startup/startup.sh'"
-
-            az webapp config set \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$APP_NAME" \
-              --startup-file "$STARTUP_CMD"
-
-            az webapp config appsettings set \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$APP_NAME" \
-              --settings LIBREOFFICE_PATH=/usr/bin/soffice
-
-      - name: 'Deploy to Azure Web App'
-        uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
-        with:
-          app-name: 'aslaw-back-end'
-          slot-name: 'Production'
-          package: release.zip
-
-      - name: Warm up chatbot endpoint
-        continue-on-error: true
+      - name: Update Web App container image (production)
         run: |
-          BASE_URL="https://aslaw-back-end-emeyfvfcarepa8dj.southeastasia-01.azurewebsites.net"
-          curl --fail --show-error --connect-timeout 20 --max-time 420 \
-            -H 'Content-Type: application/json' \
-            -d '{"question":"Say OK only.","category":"general","persist":false}' \
-            "$BASE_URL/api/ask" >/dev/null
+          az webapp config container set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME" \
+            --container-image-name "${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
 
-      - name: Warm up document-generator endpoint
-        continue-on-error: true
-        run: |
-          BASE_URL="https://aslaw-back-end-emeyfvfcarepa8dj.southeastasia-01.azurewebsites.net"
-          curl --fail --show-error --connect-timeout 20 --max-time 420 \
-            -H 'Content-Type: application/json' \
-            -d '{"prompt":"Say OK only.","language":"english"}' \
-            "$BASE_URL/api/document-generator/generate" >/dev/null
+          az webapp restart \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME"
+
