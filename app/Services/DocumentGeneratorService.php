@@ -7,6 +7,7 @@ use Dompdf\Options;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use ZipArchive;
 
@@ -25,6 +26,18 @@ class DocumentGeneratorService
         $this->templateRoot = $this->isAbsolutePath($configured)
             ? $configured
             : base_path($configured);
+    }
+
+    private function debugEnabled(): bool
+    {
+        return filter_var(env('DOCUMENT_GENERATOR_DEBUG', false), FILTER_VALIDATE_BOOL);
+    }
+
+    private function debugTrace(string $message, array $context = []): void
+    {
+        if ($this->debugEnabled()) {
+            Log::debug($message, $context);
+        }
     }
 
     private function isAbsolutePath(string $path): bool
@@ -538,18 +551,25 @@ class DocumentGeneratorService
     public function generateInvoicePdf(array $formData = []): array
     {
         $v = $this->buildInvoiceVariables($formData);
-
-        // Render the invoice HTML template into a temporary DOCX bundle and
-        // convert it to PDF with LibreOffice so the endpoint stays HTML-driven
-        // without depending on Dompdf/GD.
         $html = $this->buildInvoiceHtmlFromVariables($v);
+
+        $this->debugTrace('Invoice PDF generation requested.', [
+            'case_id' => (int) ($v['case_id'] ?? 0),
+            'invoice_id' => (int) ($v['invoice_id'] ?? 0),
+            'invoice_number' => (string) ($v['invoice_number'] ?? ''),
+            'payment_stage' => (string) ($v['payment_stage'] ?? ''),
+            'language' => (string) ($v['language'] ?? 'english'),
+            'html_length' => strlen($html),
+        ]);
 
         $pdfBuffer = null;
         $conversionErrorMessage = null;
+        $pdfSource = 'unknown';
 
         try {
             $docx = $this->createDocxFromHtml($html, 'invoice-template.docx');
             $pdfBuffer = $this->convertDocxBufferToPdf($docx['buffer']);
+            $pdfSource = 'libreoffice-docx';
         } catch (\Throwable $conversionError) {
             $conversionErrorMessage = $conversionError->getMessage();
 
@@ -562,6 +582,7 @@ class DocumentGeneratorService
         if (!is_string($pdfBuffer) || $pdfBuffer === '') {
             try {
                 $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
+                $pdfSource = 'dompdf-fallback';
             } catch (\Throwable $fallbackError) {
                 throw new RuntimeException(
                     'Unable to generate invoice PDF. LibreOffice conversion failed'
@@ -571,11 +592,24 @@ class DocumentGeneratorService
             }
         }
 
+        $pdfBytes = is_string($pdfBuffer) ? strlen($pdfBuffer) : 0;
+        $this->debugTrace('Invoice PDF generation completed.', [
+            'case_id' => (int) ($v['case_id'] ?? 0),
+            'invoice_id' => (int) ($v['invoice_id'] ?? 0),
+            'invoice_number' => (string) ($v['invoice_number'] ?? ''),
+            'pdf_source' => $pdfSource,
+            'pdf_bytes' => $pdfBytes,
+            'html_bytes' => strlen($html),
+        ]);
+
         $safeNum = preg_replace('/[^A-Za-z0-9\-_]/', '_', (string)($v['invoice_number'] ?? 'invoice'));
 
         return [
             'buffer' => $pdfBuffer,
             'filename' => $safeNum . '.pdf',
+            'source' => $pdfSource,
+            'html_bytes' => strlen($html),
+            'pdf_bytes' => $pdfBytes,
         ];
 
         /*

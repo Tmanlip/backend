@@ -19,6 +19,18 @@ class AzureStorage
 
     protected static bool $diagnosticsLogged = false;
 
+    protected static function debugEnabled(): bool
+    {
+        return filter_var(env('AZURE_STORAGE_DEBUG', false), FILTER_VALIDATE_BOOL);
+    }
+
+    protected static function trace(string $message, array $context = []): void
+    {
+        if (self::debugEnabled()) {
+            Log::debug($message, $context);
+        }
+    }
+
     protected static function client()
     {
         $connectionString = trim((string) env('AZURE_STORAGE_CONNECTION_STRING', ''));
@@ -102,6 +114,11 @@ class AzureStorage
     {
         $client = self::client();
         $container = self::container();
+        self::trace('Azure blob upload started.', [
+            'blob_name' => $blobName,
+            'container' => $container,
+            'content_length' => strlen($content),
+        ]);
 
         $options = new CreateBlockBlobOptions();
         $attempts = max(1, (int) env('AZURE_STORAGE_UPLOAD_RETRIES', 2));
@@ -115,16 +132,36 @@ class AzureStorage
                 return;
             } catch (\Throwable $e) {
                 if (! $hasRetriedAfterContainerCheck && self::isContainerMissing($e)) {
+                    self::trace('Azure blob upload succeeded.', [
+                        'blob_name' => $blobName,
+                        'container' => $container,
+                        'attempt' => $attempt,
+                    ]);
                     self::ensureContainerExists($client, $container);
                     $hasRetriedAfterContainerCheck = true;
                     $attempt--;
                     continue;
+                        self::trace('Azure blob upload reported missing container; retrying after container check.', [
+                            'blob_name' => $blobName,
+                            'container' => $container,
+                            'attempt' => $attempt,
+                            'exception_code' => (int) $e->getCode(),
+                        ]);
                 }
 
                 $lastException = $e;
                 if ($attempt < $attempts) {
                     usleep(200000 * $attempt);
                 }
+                    self::trace('Azure blob upload attempt failed.', [
+                        'blob_name' => $blobName,
+                        'container' => $container,
+                        'attempt' => $attempt,
+                        'exception_code' => (int) $e->getCode(),
+                        'exception_class' => $e::class,
+                        'exception_message' => $e->getMessage(),
+                    ]);
+
             }
         }
 

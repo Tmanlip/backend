@@ -520,10 +520,10 @@ class DocumentGeneratorController extends Controller
             $headerKeys = [
                 'X-Invoice-Id', 'X-Invoice-Number', 'X-Invoice-Expected-Amount',
                 'X-Invoice-Paid-Amount', 'X-Invoice-Balance', 'X-Case-Progress',
+                'X-Document-Generator-Source', 'X-Document-Generator-PDF-Bytes', 'X-Document-Generator-HTML-Bytes', 'X-Document-Generator-Debug',
             ];
 
-            // Ensure response is pure PDF (no DOCX)
-            return response($file['buffer'], Response::HTTP_OK, [
+            $responseHeaders = [
                 'Content-Type' => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="' . $file['filename'] . '"',
                 'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
@@ -534,8 +534,27 @@ class DocumentGeneratorController extends Controller
                 'X-Invoice-Paid-Amount' => (string) ($invoiceData['paid_amount'] ?? ''),
                 'X-Invoice-Balance' => (string) ($invoiceData['balance'] ?? ''),
                 'X-Case-Progress' => (string) ($caseProgress ?? ''),
-                'Access-Control-Expose-Headers' => implode(', ', $headerKeys),
-            ]);
+            ];
+
+            if (filter_var(env('DOCUMENT_GENERATOR_DEBUG', false), FILTER_VALIDATE_BOOL)) {
+                $responseHeaders['X-Document-Generator-Source'] = (string) ($file['source'] ?? 'unknown');
+                $responseHeaders['X-Document-Generator-PDF-Bytes'] = (string) ($file['pdf_bytes'] ?? strlen((string) $file['buffer']));
+                $responseHeaders['X-Document-Generator-HTML-Bytes'] = (string) ($file['html_bytes'] ?? 0);
+                $responseHeaders['X-Document-Generator-Debug'] = '1';
+
+                logger()->debug('Invoice PDF response metadata.', [
+                    'invoice_id' => (string) ($invoice->id ?? ''),
+                    'invoice_number' => (string) ($invoiceData['invoice_number'] ?? ''),
+                    'source' => (string) ($file['source'] ?? 'unknown'),
+                    'pdf_bytes' => (int) ($file['pdf_bytes'] ?? 0),
+                    'html_bytes' => (int) ($file['html_bytes'] ?? 0),
+                ]);
+            }
+
+            $responseHeaders['Access-Control-Expose-Headers'] = implode(', ', $headerKeys);
+
+            // Ensure response is pure PDF (no DOCX)
+            return response($file['buffer'], Response::HTTP_OK, $responseHeaders);
         } catch (\RuntimeException $error) {
             // Only return 409 for the specific "unique invoice number" conflict
             if (str_contains($error->getMessage(), 'unique invoice number')) {

@@ -30,6 +30,18 @@ class EncryptedDocumentController extends Controller
     {
     }
 
+    private function shouldTraceEncryptedDocumentFlow(): bool
+    {
+        return filter_var(env('AZURE_STORAGE_DEBUG', false), FILTER_VALIDATE_BOOL);
+    }
+
+    private function traceEncryptedDocumentFlow(string $message, array $context = []): void
+    {
+        if ($this->shouldTraceEncryptedDocumentFlow()) {
+            logger()->debug($message, $context);
+        }
+    }
+
     public function upload(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -62,12 +74,25 @@ class EncryptedDocumentController extends Controller
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
+        $this->traceEncryptedDocumentFlow('Encrypted document upload requested.', [
+            'actor_id' => (int) $actor->id,
+            'actor_role' => strtolower((string) ($actor->role ?? '')),
+            'case_id' => (int) ($validated['case_id'] ?? 0),
+            'category' => (string) ($validated['category'] ?? 'documents'),
+            'recipient_user_ids' => array_values(array_map('intval', $validated['recipient_user_ids'] ?? [])),
+            'file_name' => $request->file('file')?->getClientOriginalName(),
+        ]);
+
         if (strtolower((string) $actor->role) === 'junioradmin') {
             return response()->json(['message' => 'Junior admin cannot upload documents'], 403);
         }
 
         $case = LawCase::find($validated['case_id']);
         if (!$case) {
+            $this->traceEncryptedDocumentFlow('Encrypted document upload aborted: case not found.', [
+                'actor_id' => (int) $actor->id,
+                'case_id' => (int) ($validated['case_id'] ?? 0),
+            ]);
             return response()->json(['message' => 'Case not found'], 404);
         }
 
@@ -75,10 +100,19 @@ class EncryptedDocumentController extends Controller
         $isInvoiceCategory = $category === 'invoices';
 
         if (!$this->canManageCase($actor->id, $case)) {
+            $this->traceEncryptedDocumentFlow('Encrypted document upload aborted: forbidden for case.', [
+                'actor_id' => (int) $actor->id,
+                'case_id' => (int) $case->caseId,
+            ]);
             return response()->json(['message' => 'Forbidden for this case'], 403);
         }
 
         if ($isInvoiceCategory && !in_array(strtolower((string) $actor->role), ['admin', 'adminstaff'], true)) {
+            $this->traceEncryptedDocumentFlow('Encrypted document upload aborted: invoice upload restricted.', [
+                'actor_id' => (int) $actor->id,
+                'actor_role' => strtolower((string) ($actor->role ?? '')),
+                'case_id' => (int) $case->caseId,
+            ]);
             return response()->json(['message' => 'Only admins can upload invoices'], 403);
         }
 
@@ -353,6 +387,11 @@ class EncryptedDocumentController extends Controller
 
         $document = FileMetadata::find($documentId);
         if (!$document || $document->type !== 'encrypted_document') {
+            $this->traceEncryptedDocumentFlow('Encrypted document review lookup failed.', [
+                'document_id' => (string) $documentId,
+                'actor_id' => (int) ($actor->id ?? 0),
+                'actor_role' => $role,
+            ]);
             logger()->warning('Review failed: encrypted document not found.', [
                 'document_id' => (string) $documentId,
                 'actor_id' => (int) ($actor->id ?? 0),
@@ -364,6 +403,11 @@ class EncryptedDocumentController extends Controller
 
         $case = LawCase::find((int) $document->case_id);
         if (!$case || !$this->canManageCase((int) $actor->id, $case, (int) $document->uploader_user_id)) {
+            $this->traceEncryptedDocumentFlow('Encrypted document review aborted: forbidden case access.', [
+                'document_id' => (string) $documentId,
+                'actor_id' => (int) $actor->id,
+                'case_id' => (int) ($document->case_id ?? 0),
+            ]);
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
