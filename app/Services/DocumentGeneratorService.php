@@ -579,6 +579,24 @@ class DocumentGeneratorService
             ]);
         }
 
+        // LibreOffice with altChunk HTML sometimes produces a near-blank PDF
+        // (< 20 KB) without throwing. Treat it as a failed conversion and fall
+        // back to Dompdf so the invoice is not rendered blank.
+        $minPdfBytes = 20 * 1024; // 20 KB
+        $libreOfficeTooSmall = is_string($pdfBuffer) && strlen($pdfBuffer) > 0 && strlen($pdfBuffer) < $minPdfBytes;
+
+        if ($libreOfficeTooSmall) {
+            $this->debugTrace('LibreOffice PDF output is suspiciously small; discarding and falling back to Dompdf.', [
+                'pdf_bytes' => strlen($pdfBuffer),
+                'threshold_bytes' => $minPdfBytes,
+            ]);
+            logger()->warning('Invoice PDF LibreOffice output too small (likely blank); falling back to Dompdf.', [
+                'pdf_bytes' => strlen($pdfBuffer),
+                'threshold_bytes' => $minPdfBytes,
+            ]);
+            $pdfBuffer = null;
+        }
+
         if (!is_string($pdfBuffer) || $pdfBuffer === '') {
             try {
                 $pdfBuffer = $this->renderInvoiceHtmlToPdf($html);
