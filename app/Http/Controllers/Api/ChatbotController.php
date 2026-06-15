@@ -64,6 +64,9 @@ class ChatbotController extends Controller
                 'answer' => $result['answer'],
                 'category' => $result['category'],
                 'model' => $result['model'],
+                'domainMismatch' => (bool) ($result['domain_mismatch'] ?? false),
+                'currentCategory' => $result['current_category'] ?? null,
+                'suggestedCategory' => $result['suggested_category'] ?? null,
             ]);
         } catch (\Throwable $error) {
             return response()->json([

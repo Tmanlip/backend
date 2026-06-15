@@ -50,6 +50,7 @@ class EncryptedDocumentController extends Controller
             'category' => 'nullable|in:documents,reports,invoices',
             'recipient_user_ids' => 'nullable|array',
             'recipient_user_ids.*' => 'integer',
+            'document_placeholder' => 'nullable|in:identification,evidence,supporting_document,contract,correspondence,court_order,invoice_receipt,medical_record,financial_record,other',
             'invoice_stage' => 'nullable|in:initial,first,second,third,final',
             'payment_stage' => 'nullable|string',
             'type_of_work' => 'nullable|string|max:255',
@@ -182,6 +183,7 @@ class EncryptedDocumentController extends Controller
         }
 
         $uploadedFileName = (string) $uploadedFile->getClientOriginalName();
+        $documentPlaceholder = strtolower(trim((string) ($validated['document_placeholder'] ?? 'other')));
 
         if ($documentStatus === 'pending_approval') {
             // Client-uploaded pending documents are stored locally (not in Azure)
@@ -246,6 +248,7 @@ class EncryptedDocumentController extends Controller
             'recipients' => $recipientEntries,
             'invoice_stage' => $invoiceStage,
             'type_of_work' => (string) ($validated['type_of_work'] ?? ''),
+            'document_placeholder' => $documentPlaceholder,
             'expected_amount' => $expectedAmount,
             'paid_amount' => $paidAmount,
         ]);
@@ -356,6 +359,7 @@ class EncryptedDocumentController extends Controller
                 : 'Document uploaded and marked as pending approval',
             'document_id' => $documentId,
             'category' => $category,
+            'document_placeholder' => $documentPlaceholder,
             'storage_path' => $blobPath,
             'recipient_count' => count($recipients),
             'case_progress' => $caseProgress,

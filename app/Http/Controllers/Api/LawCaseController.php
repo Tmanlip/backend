@@ -1230,6 +1230,7 @@ class LawCaseController extends Controller
                         'created_at' => $document->created_at,
                         'invoice_stage' => (string) ($document->invoice_stage ?? ''),
                         'type_of_work' => (string) ($document->type_of_work ?? ''),
+                        'document_placeholder' => (string) ($document->document_placeholder ?? ''),
                         'paid_amount' => (float) ($document->paid_amount ?? 0),
                         'preview_url' => "/api/encrypted-documents/{$documentId}/preview",
                         'download_url' => "/api/encrypted-documents/{$documentId}/download",

@@ -30,6 +30,7 @@ class FileMetadata extends Model
         'iv',
         'invoice_stage',
         'type_of_work',
+        'document_placeholder',
         'expected_amount',
         'paid_amount',
     ];

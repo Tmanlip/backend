@@ -18,19 +18,27 @@ class AzureController extends Controller {
     private $client; 
     private $container; 
     private InvoiceProgressService $invoiceProgressService;
+
+    private function envString(string $key, string $default = ''): string
+    {
+        $raw = trim((string) env($key, $default));
+
+        return trim($raw, "\"'");
+    }
+
     public function __construct() { 
-        $connectionString = env('AZURE_STORAGE_CONNECTION_STRING');
+        $connectionString = $this->envString('AZURE_STORAGE_CONNECTION_STRING', '');
         if (!empty($connectionString)) {
             $this->client = BlobRestProxy::createBlobService($connectionString);
         } else {
             $this->client = BlobRestProxy::createBlobService(sprintf(
                 'DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s;EndpointSuffix=core.windows.net',
-                env('AZURE_STORAGE_NAME'),
-                env('AZURE_STORAGE_KEY')
+                $this->envString('AZURE_STORAGE_NAME', ''),
+                $this->envString('AZURE_STORAGE_KEY', '')
             ));
         }
         
-        $this->container = env('AZURE_STORAGE_CONTAINER'); 
+        $this->container = $this->envString('AZURE_STORAGE_CONTAINER', ''); 
         $this->invoiceProgressService = app(InvoiceProgressService::class);
     } 
 

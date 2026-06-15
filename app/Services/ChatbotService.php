@@ -14,9 +14,27 @@ class ChatbotService
      */
     public function ask(string $question, ?string $categoryHint = null, ?string $languageHint = null): array
     {
+        $explicitCategoryHint = $this->normalizeCategoryHint($categoryHint);
+        $detectedCategory = $this->resolveCategory($question, null);
         $category = $this->resolveCategory($question, $categoryHint);
         $model = $this->resolveModel($category);
         $language = $this->resolveResponseLanguage($question, $languageHint);
+
+        if (
+            $explicitCategoryHint !== null
+            && $explicitCategoryHint !== 'general'
+            && $detectedCategory !== 'general'
+            && $detectedCategory !== $explicitCategoryHint
+        ) {
+            return [
+                'answer' => $this->buildDomainMismatchResponse($explicitCategoryHint, $detectedCategory, $language),
+                'category' => $detectedCategory,
+                'model' => $this->resolveModel($detectedCategory),
+                'domain_mismatch' => true,
+                'current_category' => $explicitCategoryHint,
+                'suggested_category' => $detectedCategory,
+            ];
+        }
 
         if ($this->isFeeOrContactIntent($question)) {
             return [
@@ -86,12 +104,15 @@ class ChatbotService
     private function generateWithModel(string $model, string $question, string $language): string
     {
         $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
-        $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 180);
-        $timeoutSeconds = max(30, min($timeoutSeconds, 600));
+        $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 25);
+        $timeoutSeconds = max(8, min($timeoutSeconds, 40));
         $connectTimeoutSeconds = (int) config('ai.ollama_connect_timeout_seconds', 20);
-        $connectTimeoutSeconds = max(5, min($connectTimeoutSeconds, 120));
-        // Keep PHP script timeout above HTTP client timeout to avoid abrupt 60s fatal errors.
-        $scriptTimeoutSeconds = max(90, $timeoutSeconds + 30);
+        $connectTimeoutSeconds = max(2, min($connectTimeoutSeconds, 20));
+        $retryCount = (int) config('ai.chatbot_retry_count', 0);
+        $retryCount = max(0, min($retryCount, 2));
+
+        // Keep PHP script timeout above HTTP client timeout while staying bounded.
+        $scriptTimeoutSeconds = max(30, $timeoutSeconds + 10);
         if (function_exists('set_time_limit')) {
             @set_time_limit($scriptTimeoutSeconds);
         }
@@ -110,13 +131,17 @@ class ChatbotService
             . "\n\n"
             . $question;
 
-        /** @var HttpResponse $response */
-        $response = Http::retry(2, 1000, function ($exception): bool {
+        $http = Http::connectTimeout($connectTimeoutSeconds)
+            ->timeout($timeoutSeconds);
+
+        if ($retryCount > 0) {
+            $http = $http->retry($retryCount, 500, function ($exception): bool {
                 return $exception instanceof ConnectionException;
-            })
-            ->connectTimeout($connectTimeoutSeconds)
-            ->timeout($timeoutSeconds)
-            ->post($ollamaBaseUrl . '/api/generate', [
+            });
+        }
+
+        /** @var HttpResponse $response */
+        $response = $http->post($ollamaBaseUrl . '/api/generate', [
                 'model' => $model,
                 'prompt' => $prompt,
                 'stream' => false,
@@ -150,10 +175,19 @@ class ChatbotService
         };
     }
 
-    private function resolveCategory(string $question, ?string $categoryHint = null): string
+    private function normalizeCategoryHint(?string $categoryHint): ?string
     {
         $hint = strtolower(trim((string) $categoryHint));
-        if (in_array($hint, ['civil', 'corporate', 'criminal', 'general'], true)) {
+
+        return in_array($hint, ['civil', 'corporate', 'criminal', 'general'], true)
+            ? $hint
+            : null;
+    }
+
+    private function resolveCategory(string $question, ?string $categoryHint = null): string
+    {
+        $hint = $this->normalizeCategoryHint($categoryHint);
+        if ($hint !== null) {
             return $hint;
         }
 
@@ -187,6 +221,22 @@ class ChatbotService
         }
 
         return 'general';
+    }
+
+    private function buildDomainMismatchResponse(string $currentCategory, string $suggestedCategory, string $language): string
+    {
+        $currentLabel = ucfirst($currentCategory);
+        $suggestedLabel = ucfirst($suggestedCategory);
+
+        if ($language === 'malay') {
+            return "Soalan ini nampaknya lebih sesuai di bawah domain {$suggestedLabel}, bukan {$currentLabel}. "
+                . "Sila tukar domain ke {$suggestedLabel} dan tanya semula untuk jawapan yang lebih tepat. "
+                . "Contohnya, isu kontrak/tenancy biasanya Civil, isu syarikat/shareholder biasanya Corporate, dan isu tangkapan/bail biasanya Criminal.";
+        }
+
+        return "This question appears to fit the {$suggestedLabel} domain rather than {$currentLabel}. "
+            . "Please switch to {$suggestedLabel} and ask again for a more accurate answer. "
+            . "For example: contract/tenancy matters are usually Civil, company/shareholder matters are usually Corporate, and arrest/bail matters are usually Criminal.";
     }
 
     private function resolveResponseLanguage(string $question, ?string $languageHint = null): string

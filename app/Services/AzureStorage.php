@@ -19,6 +19,14 @@ class AzureStorage
 
     protected static bool $diagnosticsLogged = false;
 
+    protected static function envString(string $key, string $default = ''): string
+    {
+        $raw = trim((string) env($key, $default));
+
+        // Tolerate wrapped secrets copied from portals (e.g. "value" or 'value').
+        return trim($raw, "\"'");
+    }
+
     protected static function debugEnabled(): bool
     {
         return filter_var(env('AZURE_STORAGE_DEBUG', false), FILTER_VALIDATE_BOOL);
@@ -33,10 +41,10 @@ class AzureStorage
 
     protected static function client()
     {
-        $connectionString = trim((string) env('AZURE_STORAGE_CONNECTION_STRING', ''));
-        $accountName = trim((string) env('AZURE_STORAGE_NAME', ''));
-        $accountKey = trim((string) env('AZURE_STORAGE_KEY', ''));
-        $container = trim((string) env('AZURE_STORAGE_CONTAINER', ''));
+        $connectionString = self::envString('AZURE_STORAGE_CONNECTION_STRING', '');
+        $accountName = self::envString('AZURE_STORAGE_NAME', '');
+        $accountKey = self::envString('AZURE_STORAGE_KEY', '');
+        $container = self::envString('AZURE_STORAGE_CONTAINER', '');
         $timeout = (int) env('AZURE_STORAGE_TIMEOUT', 10);
         $connectTimeout = (int) env('AZURE_STORAGE_CONNECT_TIMEOUT', 5);
 
@@ -69,7 +77,7 @@ class AzureStorage
 
     protected static function container(): string
     {
-        $container = trim((string) env('AZURE_STORAGE_CONTAINER', ''));
+        $container = self::envString('AZURE_STORAGE_CONTAINER', '');
 
         if ($container === '') {
             throw new \RuntimeException('AZURE_STORAGE_CONTAINER is not configured.');
@@ -129,38 +137,38 @@ class AzureStorage
             try {
                 $client->createBlockBlob($container, $blobName, $content, $options);
                 self::$containerChecked[$container] = true;
+                self::trace('Azure blob upload succeeded.', [
+                    'blob_name' => $blobName,
+                    'container' => $container,
+                    'attempt' => $attempt,
+                ]);
                 return;
             } catch (\Throwable $e) {
                 if (! $hasRetriedAfterContainerCheck && self::isContainerMissing($e)) {
-                    self::trace('Azure blob upload succeeded.', [
+                    self::trace('Azure blob upload reported missing container; retrying after container check.', [
                         'blob_name' => $blobName,
                         'container' => $container,
                         'attempt' => $attempt,
+                        'exception_code' => (int) $e->getCode(),
                     ]);
                     self::ensureContainerExists($client, $container);
                     $hasRetriedAfterContainerCheck = true;
                     $attempt--;
                     continue;
-                        self::trace('Azure blob upload reported missing container; retrying after container check.', [
-                            'blob_name' => $blobName,
-                            'container' => $container,
-                            'attempt' => $attempt,
-                            'exception_code' => (int) $e->getCode(),
-                        ]);
                 }
 
                 $lastException = $e;
                 if ($attempt < $attempts) {
                     usleep(200000 * $attempt);
                 }
-                    self::trace('Azure blob upload attempt failed.', [
-                        'blob_name' => $blobName,
-                        'container' => $container,
-                        'attempt' => $attempt,
-                        'exception_code' => (int) $e->getCode(),
-                        'exception_class' => $e::class,
-                        'exception_message' => $e->getMessage(),
-                    ]);
+                self::trace('Azure blob upload attempt failed.', [
+                    'blob_name' => $blobName,
+                    'container' => $container,
+                    'attempt' => $attempt,
+                    'exception_code' => (int) $e->getCode(),
+                    'exception_class' => $e::class,
+                    'exception_message' => $e->getMessage(),
+                ]);
 
             }
         }
@@ -202,7 +210,7 @@ class AzureStorage
 
     public static function url(string $blobName): string
     {
-        $accountName = env('AZURE_STORAGE_NAME');
+        $accountName = self::envString('AZURE_STORAGE_NAME', '');
         $container = self::container();
         $normalizedBlob = ltrim($blobName, '/');
 
