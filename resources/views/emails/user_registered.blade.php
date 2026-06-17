@@ -2,9 +2,9 @@
 
 @php($frontendUrl = rtrim(env('APP_FRONTEND_URL', config('app.url')), '/'))
 
-@section('title', 'Your ASLAW Account Is Ready')
-@section('preheader', 'Your ASLAW account has been created and is ready for first login.')
-@section('heading', 'Welcome to ASLAW, ' . $user->name)
+@section('title', 'Your ASALAW Account Is Ready')
+@section('preheader', 'Your ASALAW account has been created and is ready for first login.')
+@section('heading', 'Welcome to ASALAW, ' . $user->name)
 
 @section('content')
     <p style="margin:0 0 16px 0;">Your account has been created successfully. Use the credentials below to access the platform.</p>
@@ -21,7 +21,7 @@
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
         <tr>
             <td>
-                <a href="{{ $frontendUrl }}" style="display:inline-block;padding:14px 24px;border-radius:10px;background-color:#0f172a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">Log In to ASLAW</a>
+                <a href="{{ $frontendUrl }}" style="display:inline-block;padding:14px 24px;border-radius:10px;background-color:#0f172a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">Log In to ASALAW</a>
             </td>
         </tr>
     </table>

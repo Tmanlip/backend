@@ -23,7 +23,7 @@ class GoogleCalendarService
         }
 
         $client = new Client();
-        $client->setApplicationName((string) config('app.name', 'ASLAW') . ' Meeting Scheduler');
+        $client->setApplicationName((string) config('app.name', 'ASALAW') . ' Meeting Scheduler');
         $client->setAuthConfig($credentialsPath);
         $client->setScopes([Calendar::CALENDAR]);
 

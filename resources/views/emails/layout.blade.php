@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'ASLAW Notification')</title>
+    <title>@yield('title', 'ASALAW Notification')</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f6fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
     @php
@@ -17,7 +17,7 @@
     @endphp
 
     <span style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">
-        @yield('preheader', 'Important update from ASLAW.')
+        @yield('preheader', 'Important update from ASALAW.')
     </span>
 
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f4f6fb;margin:0;padding:24px 12px;">
@@ -26,7 +26,7 @@
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:680px;">
                     <tr>
                         <td style="padding:0 0 16px 0;text-align:center;">
-                            <img src="{{ $logoSource }}" alt="ASLAW" style="display:block;margin:0 auto 12px auto;max-width:220px;width:100%;height:auto;">
+                            <img src="{{ $logoSource }}" alt="ASALAW" style="display:block;margin:0 auto 12px auto;max-width:220px;width:100%;height:auto;">
                             <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#64748b;">Legal Management Platform</div>
                         </td>
                     </tr>
@@ -42,8 +42,8 @@
                     </tr>
                     <tr>
                         <td style="padding:18px 12px 0 12px;text-align:center;font-size:12px;line-height:1.7;color:#64748b;">
-                            This is an automated message from ASLAW. Please do not reply directly to this email.<br>
-                            © {{ now()->year }} ASLAW. All rights reserved.
+                            This is an automated message from ASALAW. Please do not reply directly to this email.<br>
+                            © {{ now()->year }} ASALAW. All rights reserved.
                         </td>
                     </tr>
                 </table>

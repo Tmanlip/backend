@@ -26,7 +26,7 @@ class AdminLogSeverityAlertMail extends Mailable
         $module = (string) ($this->logData['module'] ?? 'api');
 
         return new Envelope(
-            subject: "[ASLAW Alert][{$severity}] {$module} event detected",
+            subject: "[ASALAW Alert][{$severity}] {$module} event detected",
         );
     }
 

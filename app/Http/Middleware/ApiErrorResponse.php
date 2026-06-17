@@ -44,6 +44,16 @@ class ApiErrorResponse
             'status' => $status,
         ];
 
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                if (in_array($key, ['message', 'error', 'errors', 'success', 'status'], true)) {
+                    continue;
+                }
+
+                $payload[$key] = $value;
+            }
+        }
+
         if (is_array($data) && isset($data['errors']) && is_array($data['errors'])) {
             $payload['errors'] = $data['errors'];
         }

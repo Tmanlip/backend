@@ -705,8 +705,8 @@ class DocumentGeneratorService
 
         $logoDataUri = $this->buildInvoiceLogoDataUri();
         $brandLogoHtml = $logoDataUri !== null
-            ? '<img src="' . $esc($logoDataUri) . '" alt="ASLAW" width="320" height="56" style="display:block;width:320px;height:56px;" />'
-            : '<span class="brand-text">ASLAW</span>';
+            ? '<img src="' . $esc($logoDataUri) . '" alt="ASALAW" width="320" height="56" style="display:block;width:320px;height:56px;" />'
+            : '<span class="brand-text">ASALAW</span>';
 
         return $this->renderInvoiceTemplate([
             '{{invoiceTitle}}' => $invoiceTitle,

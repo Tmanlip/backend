@@ -56,6 +56,9 @@ Route::middleware('throttle:api')->group(function () {
 
 //Authentication API /api
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
+Route::post('/login/mfa-verify', [AuthController::class, 'verifyMfaLogin'])->middleware('throttle:auth-mfa');
+Route::get('/sso/entra/redirect', [AuthController::class, 'redirectToEntra'])->middleware('throttle:auth-login');
+Route::get('/sso/entra/callback', [AuthController::class, 'handleEntraCallback'])->middleware('throttle:auth-login');
 Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('throttle:auth-login');
 Route::post('/password/send-otp', [AuthController::class, 'sendOtp'])->middleware('throttle:auth-otp');
 Route::post('/password/verify-code', [AuthController::class, 'verifyOtp'])->middleware('throttle:auth-otp');
@@ -67,6 +70,9 @@ Route::post('/reset-password', [AuthController::class, 'resetNewPassword'])->mid
 Route::middleware(['auth:sanctum', 'throttle:api', CheckArchivedUser::class])->group(function () {
     // Logout (allowed for archived users)
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/mfa/setup-start', [AuthController::class, 'mfaSetupStart'])->middleware('throttle:auth-mfa');
+    Route::post('/mfa/setup-confirm', [AuthController::class, 'mfaSetupConfirm'])->middleware('throttle:auth-mfa');
+    Route::post('/mfa/disable', [AuthController::class, 'mfaDisable'])->middleware('throttle:auth-mfa');
     // Users API /api
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/lawyers', [UserController::class, 'getAllLawyers']);

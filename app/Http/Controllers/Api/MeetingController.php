@@ -101,7 +101,7 @@ class MeetingController extends Controller
         );
 
         $eventDescription = sprintf(
-            "Scheduled via ASLAW\nCase ID: %d\nCase Title: %s\nLawyer: %s\nClient: %s\nMethod: %s\nAgenda: %s",
+            "Scheduled via ASALAW\nCase ID: %d\nCase Title: %s\nLawyer: %s\nClient: %s\nMethod: %s\nAgenda: %s",
             (int) $lawCase->caseId,
             (string) $lawCase->title,
             (string) $lawCase->lawyer->name,

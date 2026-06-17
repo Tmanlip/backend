@@ -8,7 +8,7 @@
 
     <h2 style="margin: 0 0 12px; color: #b91c1c;">Admin Security Alert</h2>
 
-    <p style="margin: 0 0 12px;">A log event with severity <strong>{{ $severity }}</strong> was detected in ASLAW.</p>
+    <p style="margin: 0 0 12px;">A log event with severity <strong>{{ $severity }}</strong> was detected in ASALAW.</p>
 
     <table cellpadding="8" cellspacing="0" border="0" style="border-collapse: collapse; width: 100%; background: #f8fafc; border: 1px solid #e2e8f0;">
         <tr>

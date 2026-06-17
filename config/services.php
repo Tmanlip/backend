@@ -49,4 +49,14 @@ return [
         'api_version' => env('AZURE_WEBPUBSUB_API_VERSION', '2024-01-01'),
     ],
 
+    'microsoft' => [
+        'enabled' => (bool) env('ENTRA_SSO_ENABLED', false),
+        'tenant_id' => env('ENTRA_TENANT_ID', 'common'),
+        'client_id' => env('ENTRA_CLIENT_ID'),
+        'client_secret' => env('ENTRA_CLIENT_SECRET'),
+        'prompt' => env('ENTRA_PROMPT', 'login'),
+        'redirect_uri' => env('ENTRA_REDIRECT_URI', env('APP_URL', 'http://localhost:8000') . '/api/sso/entra/callback'),
+        'frontend_callback_path' => env('ENTRA_FRONTEND_CALLBACK_PATH', '/sso/callback'),
+    ],
+
 ];

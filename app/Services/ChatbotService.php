@@ -10,31 +10,13 @@ use RuntimeException;
 class ChatbotService
 {
     /**
-     * Ask ASLAW chatbot and return answer + routing metadata.
+        * Ask ASALAW chatbot and return answer + routing metadata.
      */
     public function ask(string $question, ?string $categoryHint = null, ?string $languageHint = null): array
     {
-        $explicitCategoryHint = $this->normalizeCategoryHint($categoryHint);
-        $detectedCategory = $this->resolveCategory($question, null);
         $category = $this->resolveCategory($question, $categoryHint);
         $model = $this->resolveModel($category);
         $language = $this->resolveResponseLanguage($question, $languageHint);
-
-        if (
-            $explicitCategoryHint !== null
-            && $explicitCategoryHint !== 'general'
-            && $detectedCategory !== 'general'
-            && $detectedCategory !== $explicitCategoryHint
-        ) {
-            return [
-                'answer' => $this->buildDomainMismatchResponse($explicitCategoryHint, $detectedCategory, $language),
-                'category' => $detectedCategory,
-                'model' => $this->resolveModel($detectedCategory),
-                'domain_mismatch' => true,
-                'current_category' => $explicitCategoryHint,
-                'suggested_category' => $detectedCategory,
-            ];
-        }
 
         if ($this->isFeeOrContactIntent($question)) {
             return [
@@ -46,8 +28,8 @@ class ChatbotService
 
         if ($this->isGreetingIntent($question)) {
             $greeting = $language === 'malay'
-                ? 'Hai. Saya ASLAW chatbot. Sila tanya soalan undang-undang anda. Jika boleh, pilih domain (civil/corporate/criminal) untuk routing yang lebih tepat.'
-                : 'Hello. I am ASLAW chatbot. Please ask your legal question and, if possible, choose a domain (civil/corporate/criminal) for faster routing.';
+                ? 'Hai. Saya ASALAW chatbot. Sila tanya soalan undang-undang anda. Jika boleh, pilih domain (civil/corporate/criminal) untuk routing yang lebih tepat.'
+                : 'Hello. I am ASALAW chatbot. Please ask your legal question and, if possible, choose a domain (civil/corporate/criminal) for faster routing.';
 
             return [
                 'answer' => $greeting,
@@ -175,19 +157,10 @@ class ChatbotService
         };
     }
 
-    private function normalizeCategoryHint(?string $categoryHint): ?string
-    {
-        $hint = strtolower(trim((string) $categoryHint));
-
-        return in_array($hint, ['civil', 'corporate', 'criminal', 'general'], true)
-            ? $hint
-            : null;
-    }
-
     private function resolveCategory(string $question, ?string $categoryHint = null): string
     {
-        $hint = $this->normalizeCategoryHint($categoryHint);
-        if ($hint !== null) {
+        $hint = strtolower(trim((string) $categoryHint));
+        if (in_array($hint, ['civil', 'corporate', 'criminal', 'general'], true)) {
             return $hint;
         }
 
@@ -221,22 +194,6 @@ class ChatbotService
         }
 
         return 'general';
-    }
-
-    private function buildDomainMismatchResponse(string $currentCategory, string $suggestedCategory, string $language): string
-    {
-        $currentLabel = ucfirst($currentCategory);
-        $suggestedLabel = ucfirst($suggestedCategory);
-
-        if ($language === 'malay') {
-            return "Soalan ini nampaknya lebih sesuai di bawah domain {$suggestedLabel}, bukan {$currentLabel}. "
-                . "Sila tukar domain ke {$suggestedLabel} dan tanya semula untuk jawapan yang lebih tepat. "
-                . "Contohnya, isu kontrak/tenancy biasanya Civil, isu syarikat/shareholder biasanya Corporate, dan isu tangkapan/bail biasanya Criminal.";
-        }
-
-        return "This question appears to fit the {$suggestedLabel} domain rather than {$currentLabel}. "
-            . "Please switch to {$suggestedLabel} and ask again for a more accurate answer. "
-            . "For example: contract/tenancy matters are usually Civil, company/shareholder matters are usually Corporate, and arrest/bail matters are usually Criminal.";
     }
 
     private function resolveResponseLanguage(string $question, ?string $languageHint = null): string

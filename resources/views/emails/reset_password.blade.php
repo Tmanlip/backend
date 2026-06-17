@@ -1,11 +1,11 @@
 @extends('emails.layout')
 
 @section('title', 'Reset Your Password')
-@section('preheader', 'Reset your ASLAW password securely from the link in this email.')
+@section('preheader', 'Reset your ASALAW password securely from the link in this email.')
 @section('heading', 'Password Reset Request')
 
 @section('content')
-    <p style="margin:0 0 16px 0;">We received a request to reset your ASLAW account password.</p>
+    <p style="margin:0 0 16px 0;">We received a request to reset your ASALAW account password.</p>
     <p style="margin:0 0 24px 0;">Use the button below to choose a new password. For security reasons, this link should only be used by you.</p>
 
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">

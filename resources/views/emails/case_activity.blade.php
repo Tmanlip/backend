@@ -1,7 +1,7 @@
 @extends('emails.layout')
 
 @section('title', 'Case Update Notification')
-@section('preheader', 'A case activity update is available in your ASLAW workspace.')
+@section('preheader', 'A case activity update is available in your ASALAW workspace.')
 @section('heading', 'New Case Activity')
 
 @section('content')
@@ -20,5 +20,5 @@
         </tr>
     </table>
 
-    <p style="margin:0;">Please sign in to your ASLAW account to review the latest case information.</p>
+    <p style="margin:0;">Please sign in to your ASALAW account to review the latest case information.</p>
 @endsection

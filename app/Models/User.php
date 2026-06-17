@@ -36,6 +36,10 @@
             'account_locked_at',
             'must_change_password',
             'temporary_password_generated_at',
+            'mfa_enabled',
+            'mfa_secret_encrypted',
+            'mfa_confirmed_at',
+            'mfa_recovery_codes',
         ];
 
         protected $hidden = [
@@ -43,6 +47,8 @@
             'remember_token',
             'key',
             'rsa_private_key',
+            'mfa_secret_encrypted',
+            'mfa_recovery_codes',
         ];
 
         protected function casts(): array
@@ -53,6 +59,9 @@
                 'account_locked_at' => 'datetime',
                 'must_change_password' => 'boolean',
                 'temporary_password_generated_at' => 'datetime',
+                'mfa_enabled' => 'boolean',
+                'mfa_confirmed_at' => 'datetime',
+                'mfa_recovery_codes' => 'array',
             ];
         }
 

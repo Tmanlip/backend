@@ -22,7 +22,7 @@ class UserSeeder extends Seeder
             // Admins
             [
                 'name' => 'Admin One',
-                'email' => 'admin1@example.com',
+                'email' => 'taimanaliff@tmanpopo.my',
                 'username' => 'admin1',
                 'password' => 'password123',
                 'role' => 'admin',
@@ -35,7 +35,7 @@ class UserSeeder extends Seeder
             ],
             [
                 'name' => 'Admin Two',
-                'email' => 'admin2@example.com',
+                'email' => 'aliffpow@tmanpopo.my',
                 'username' => 'admin2',
                 'password' => 'password123',
                 'role' => 'junioradmin',
@@ -48,7 +48,7 @@ class UserSeeder extends Seeder
             ],
             [
                 'name' => 'Admin Staff One',
-                'email' => 'adminstaff1@example.com',
+                'email' => 'rikapow@tmanpopo.my',
                 'username' => 'adminstaff1',
                 'password' => 'password123',
                 'role' => 'adminstaff',
@@ -63,7 +63,7 @@ class UserSeeder extends Seeder
             // Lawyers
             [
                 'name' => 'Lawyer One',
-                'email' => 'lawyer1@example.com',
+                'email' => 'syakirinpow@tmanpopo.my',
                 'username' => 'lawyer1',
                 'password' => 'password123',
                 'role' => 'lawyer',
@@ -76,7 +76,7 @@ class UserSeeder extends Seeder
             ],
             [
                 'name' => 'Lawyer Two',
-                'email' => 'lawyer2@example.com',
+                'email' => 'sabrinapow@tmanpopo.my',
                 'username' => 'lawyer2',
                 'password' => 'password123',
                 'role' => 'lawyer',

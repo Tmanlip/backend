@@ -54,5 +54,11 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(5)->by($email.'|'.$request->ip());
         });
+
+        RateLimiter::for('auth-mfa', function (Request $request) use ($resolveEmailKey) {
+            $email = $resolveEmailKey($request);
+
+            return Limit::perMinute(10)->by($email.'|'.$request->ip());
+        });
     }
 }
