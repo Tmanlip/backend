@@ -26,9 +26,7 @@ use Throwable;
 
 class AuthController extends Controller
 {
-    // Cache key prefix for short-lived MFA login challenges issued after password check.
     private const MFA_CHALLENGE_CACHE_PREFIX = 'auth:mfa:challenge:';
-    // Cache key prefix for Entra OAuth state payload (selected role + timestamp).
     private const ENTRA_STATE_CACHE_PREFIX = 'auth:entra:state:';
 
     public function __construct(private readonly TotpService $totpService)
@@ -109,7 +107,6 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // Admin-family roles must use Microsoft Entra SSO instead of local password auth.
         if ($this->requiresEntraSsoForRole($user)) {
             return response()->json([
                 'message' => 'This role must sign in with Microsoft SSO.',
@@ -138,7 +135,6 @@ class AuthController extends Controller
 
         $remember = (bool) $request->boolean('remember');
 
-        // Client role uses app-based TOTP MFA after password validation.
         if ($this->isClientMfaEnabled($user)) {
             $challengeToken = Str::random(64);
             Cache::put(
@@ -168,7 +164,7 @@ class AuthController extends Controller
     public function redirectToEntra(Request $request)
     {
         $validated = $request->validate([
-            'role' => 'required|string|in:admin,lawyer,adminstaff,junioradmin',
+            'role' => 'nullable|string|in:admin,lawyer,adminstaff,junioradmin',
         ]);
 
         if (!$this->isEntraEnabled()) {
@@ -178,7 +174,7 @@ class AuthController extends Controller
             ], 503);
         }
 
-        $requestedRole = strtolower((string) $validated['role']);
+        $requestedRole = strtolower((string) ($validated['role'] ?? ''));
         $stateToken = Str::random(64);
 
         Cache::put(
@@ -190,7 +186,6 @@ class AuthController extends Controller
             now()->addMinutes(10)
         );
 
-        // Build Entra authorize URL and keep role choice in state so callback can enforce role match.
         $tenant = (string) config('services.microsoft.tenant_id', 'common');
         $authorizeEndpoint = sprintf('https://login.microsoftonline.com/%s/oauth2/v2.0/authorize', rawurlencode($tenant));
 
@@ -213,7 +208,7 @@ class AuthController extends Controller
         $cacheKey = self::ENTRA_STATE_CACHE_PREFIX . $stateToken;
         $statePayload = Cache::get($cacheKey);
 
-        if (!is_array($statePayload) || empty($statePayload['role'])) {
+        if (!is_array($statePayload)) {
             return redirect()->away($this->buildFrontendSsoRedirectUrl([
                 'error' => 'Invalid or expired SSO state. Please try signing in again.',
             ]));
@@ -236,7 +231,6 @@ class AuthController extends Controller
             ]));
         }
 
-        // OAuth callback flow: state validation -> token exchange -> Graph profile -> local account match.
         $tokenResponse = $this->exchangeEntraCodeForToken($authorizationCode);
 
         if (!$tokenResponse['ok']) {
@@ -254,7 +248,7 @@ class AuthController extends Controller
         }
 
         $entraEmail = strtolower(trim((string) ($graphResponse['email'] ?? '')));
-        $requestedRole = strtolower((string) $statePayload['role']);
+        $requestedRole = strtolower((string) ($statePayload['role'] ?? ''));
 
         if ($entraEmail === '') {
             return redirect()->away($this->buildFrontendSsoRedirectUrl([
@@ -270,7 +264,7 @@ class AuthController extends Controller
             ]));
         }
 
-        if (strtolower((string) $user->role) !== $requestedRole) {
+        if ($requestedRole !== '' && strtolower((string) $user->role) !== $requestedRole) {
             return redirect()->away($this->buildFrontendSsoRedirectUrl([
                 'error' => 'Selected SSO role does not match your ASALAW account role.',
             ]));
@@ -350,7 +344,6 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Validate TOTP code against decrypted secret before issuing final API token.
         $secret = $this->decryptMfaSecret($user);
 
         if (!$secret || !$this->totpService->verify($secret, (string) $validated['code'])) {
@@ -399,7 +392,6 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // Generate and persist a new TOTP secret, then return QR/otpauth payload for Authenticator apps.
         $secret = $this->totpService->generateSecret(32);
         $issuer = (string) config('app.name', 'ASALAW');
         $accountName = (string) $user->email;
@@ -743,7 +735,6 @@ class AuthController extends Controller
 
     private function isClientMfaEnabled(User $user): bool
     {
-        // MFA is currently enabled only for client accounts.
         return $this->isClientRole($user)
             && (bool) $user->mfa_enabled
             && !empty($user->mfa_secret_encrypted);

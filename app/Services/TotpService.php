@@ -20,7 +20,6 @@ class TotpService
 
     public function getOtpAuthUrl(string $issuer, string $accountName, string $secret): string
     {
-        // Provisioning URL consumed by Microsoft Authenticator / other TOTP apps.
         $issuerEncoded = rawurlencode($issuer);
         $accountEncoded = rawurlencode($accountName);
 
@@ -35,7 +34,6 @@ class TotpService
 
     public function verify(string $secret, string $code, int $window = 1): bool
     {
-        // Accept current 30-second step with small clock-skew tolerance.
         $normalizedCode = preg_replace('/\D+/', '', $code ?? '');
 
         if (!is_string($normalizedCode) || strlen($normalizedCode) !== 6) {
