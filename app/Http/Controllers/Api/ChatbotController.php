@@ -157,11 +157,27 @@ class ChatbotController extends Controller
 
     public function health(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'writeProbe' => ['nullable', 'boolean'],
-        ]);
+        $rawWriteProbe = $request->query('writeProbe', $request->input('writeProbe'));
+        if ($rawWriteProbe === null) {
+            $shouldWriteProbe = false;
+        } elseif ($rawWriteProbe === '') {
+            // Support shorthand diagnostics URL like /api/chatbot/health?writeProbe
+            $shouldWriteProbe = true;
+        } else {
+            $parsedWriteProbe = filter_var($rawWriteProbe, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($parsedWriteProbe === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation error',
+                    'status' => Response::HTTP_UNPROCESSABLE_ENTITY,
+                    'errors' => [
+                        'writeProbe' => ['The writeProbe value must be one of: true, false, 1, 0, yes, no, on, off.'],
+                    ],
+                ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            }
+            $shouldWriteProbe = (bool) $parsedWriteProbe;
+        }
 
-        $shouldWriteProbe = (bool) ($validated['writeProbe'] ?? false);
         $ollamaConfigured = trim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'));
         $ollamaResolved = $this->resolveOllamaBaseUrl();
         $ollamaNormalized = $ollamaConfigured !== $ollamaResolved;
