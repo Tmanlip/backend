@@ -48,6 +48,50 @@ class ChatbotService
         ];
     }
 
+    /**
+     * Stream chatbot answer chunks and return final answer + metadata.
+     *
+     * @param callable(string):void $onChunk
+     */
+    public function askStream(string $question, ?string $categoryHint, ?string $languageHint, callable $onChunk): array
+    {
+        $category = $this->resolveCategory($question, $categoryHint);
+        $model = $this->resolveModel($category);
+        $language = $this->resolveResponseLanguage($question, $languageHint);
+
+        if ($this->isFeeOrContactIntent($question)) {
+            $answer = $this->buildFeeContactReferenceResponse($category, $language);
+            $onChunk($answer);
+
+            return [
+                'answer' => $answer,
+                'category' => $category,
+                'model' => $model,
+            ];
+        }
+
+        if ($this->isGreetingIntent($question)) {
+            $answer = $language === 'malay'
+                ? 'Hai. Saya ASALAW chatbot. Sila tanya soalan undang-undang anda. Jika boleh, pilih domain (civil/corporate/criminal) untuk routing yang lebih tepat.'
+                : 'Hello. I am ASALAW chatbot. Please ask your legal question and, if possible, choose a domain (civil/corporate/criminal) for faster routing.';
+            $onChunk($answer);
+
+            return [
+                'answer' => $answer,
+                'category' => $category,
+                'model' => $model,
+            ];
+        }
+
+        $answer = $this->streamWithModel($model, $question, $language, $onChunk);
+
+        return [
+            'answer' => $answer,
+            'category' => $category,
+            'model' => $model,
+        ];
+    }
+
     private function generateWithModelFallback(string $preferredModel, string $question, string $language): array
     {
         $fallbackModel = $this->resolveModel('general');
@@ -86,13 +130,11 @@ class ChatbotService
 
     private function generateWithModel(string $model, string $question, string $language): string
     {
-        $ollamaBaseUrl = $this->resolveOllamaBaseUrl();
-        $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 25);
-        $timeoutSeconds = max(8, min($timeoutSeconds, 40));
-        $connectTimeoutSeconds = (int) config('ai.ollama_connect_timeout_seconds', 20);
-        $connectTimeoutSeconds = max(2, min($connectTimeoutSeconds, 20));
-        $retryCount = (int) config('ai.chatbot_retry_count', 0);
-        $retryCount = max(0, min($retryCount, 2));
+        $settings = $this->buildGenerationSettings($question, $language);
+        $ollamaBaseUrl = $settings['base_url'];
+        $timeoutSeconds = $settings['timeout_seconds'];
+        $connectTimeoutSeconds = $settings['connect_timeout_seconds'];
+        $retryCount = $settings['retry_count'];
 
         // Keep PHP script timeout above HTTP client timeout while staying bounded.
         $scriptTimeoutSeconds = max(30, $timeoutSeconds + 10);
@@ -100,19 +142,9 @@ class ChatbotService
             @set_time_limit($scriptTimeoutSeconds);
         }
         @ini_set('max_execution_time', (string) $scriptTimeoutSeconds);
-        $maxTokens = (int) config('ai.chatbot_max_tokens', 220);
-        $maxTokens = max(80, min($maxTokens, 512));
-        $temperature = (float) config('ai.chatbot_temperature', 0.15);
-        $temperature = max(0.0, min($temperature, 1.0));
-
-        $languageInstruction = $language === 'malay'
-            ? 'Jawab dalam Bahasa Melayu yang jelas dan profesional.'
-            : 'Answer in clear professional English.';
-
-        $prompt = "Answer concisely with practical legal information. Keep the response reasonably short unless user asks for detailed explanation. "
-            . $languageInstruction
-            . "\n\n"
-            . $question;
+        $maxTokens = $settings['max_tokens'];
+        $temperature = $settings['temperature'];
+        $prompt = $settings['prompt'];
 
         $http = Http::connectTimeout($connectTimeoutSeconds)
             ->timeout($timeoutSeconds);
@@ -132,7 +164,7 @@ class ChatbotService
                     'temperature' => $temperature,
                     'num_predict' => $maxTokens,
                 ],
-                'keep_alive' => config('ai.chatbot_keep_alive', '10m'),
+                'keep_alive' => $settings['keep_alive'],
             ]);
 
         if (! $response->successful()) {
@@ -146,6 +178,123 @@ class ChatbotService
         }
 
         return $answer;
+    }
+
+    /**
+     * @param callable(string):void $onChunk
+     */
+    private function streamWithModel(string $model, string $question, string $language, callable $onChunk): string
+    {
+        $settings = $this->buildGenerationSettings($question, $language);
+        $ollamaBaseUrl = $settings['base_url'];
+        $timeoutSeconds = $settings['timeout_seconds'];
+        $connectTimeoutSeconds = $settings['connect_timeout_seconds'];
+        $prompt = $settings['prompt'];
+
+        // Keep PHP script timeout above HTTP client timeout while staying bounded.
+        $scriptTimeoutSeconds = max(30, $timeoutSeconds + 10);
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($scriptTimeoutSeconds);
+        }
+        @ini_set('max_execution_time', (string) $scriptTimeoutSeconds);
+
+        /** @var HttpResponse $response */
+        $response = Http::connectTimeout($connectTimeoutSeconds)
+            ->timeout($timeoutSeconds)
+            ->withOptions(['stream' => true])
+            ->post($ollamaBaseUrl . '/api/generate', [
+                'model' => $model,
+                'prompt' => $prompt,
+                'stream' => true,
+                'options' => [
+                    'temperature' => $settings['temperature'],
+                    'num_predict' => $settings['max_tokens'],
+                ],
+                'keep_alive' => $settings['keep_alive'],
+            ]);
+
+        if (! $response->successful()) {
+            $bodySnippet = mb_substr((string) $response->body(), 0, 300);
+            throw new RuntimeException('Ollama stream request failed with status ' . $response->status() . '. ' . trim($bodySnippet));
+        }
+
+        $answer = '';
+        $buffer = '';
+        $stream = $response->toPsrResponse()->getBody();
+
+        while (! $stream->eof()) {
+            $chunk = $stream->read(8192);
+            if ($chunk === '') {
+                continue;
+            }
+
+            $buffer .= $chunk;
+
+            while (($newlinePos = strpos($buffer, "\n")) !== false) {
+                $line = trim(substr($buffer, 0, $newlinePos));
+                $buffer = substr($buffer, $newlinePos + 1);
+
+                if ($line === '') {
+                    continue;
+                }
+
+                $payload = json_decode($line, true);
+                if (! is_array($payload)) {
+                    continue;
+                }
+
+                $piece = (string) ($payload['response'] ?? '');
+                if ($piece !== '') {
+                    $answer .= $piece;
+                    $onChunk($piece);
+                }
+            }
+        }
+
+        $finalAnswer = trim($answer);
+        if ($finalAnswer === '') {
+            throw new RuntimeException('Ollama streaming response was empty.');
+        }
+
+        return $finalAnswer;
+    }
+
+    /**
+     * @return array{base_url:string,timeout_seconds:int,connect_timeout_seconds:int,retry_count:int,max_tokens:int,temperature:float,prompt:string,keep_alive:string}
+     */
+    private function buildGenerationSettings(string $question, string $language): array
+    {
+        $languageInstruction = $language === 'malay'
+            ? 'Jawab dalam Bahasa Melayu yang jelas dan profesional.'
+            : 'Answer in clear professional English.';
+
+        $prompt = "Answer concisely with practical legal information. Keep the response reasonably short unless user asks for detailed explanation. "
+            . $languageInstruction
+            . "\n\n"
+            . $question;
+
+        $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 25);
+        $timeoutSeconds = max(8, min($timeoutSeconds, 120));
+        $connectTimeoutSeconds = (int) config('ai.ollama_connect_timeout_seconds', 20);
+        $connectTimeoutSeconds = max(2, min($connectTimeoutSeconds, 20));
+        $retryCount = (int) config('ai.chatbot_retry_count', 0);
+        $retryCount = max(0, min($retryCount, 2));
+
+        $maxTokens = (int) config('ai.chatbot_max_tokens', 220);
+        $maxTokens = max(80, min($maxTokens, 512));
+        $temperature = (float) config('ai.chatbot_temperature', 0.15);
+        $temperature = max(0.0, min($temperature, 1.0));
+
+        return [
+            'base_url' => $this->resolveOllamaBaseUrl(),
+            'timeout_seconds' => $timeoutSeconds,
+            'connect_timeout_seconds' => $connectTimeoutSeconds,
+            'retry_count' => $retryCount,
+            'max_tokens' => $maxTokens,
+            'temperature' => $temperature,
+            'prompt' => $prompt,
+            'keep_alive' => (string) config('ai.chatbot_keep_alive', '10m'),
+        ];
     }
 
     private function resolveOllamaBaseUrl(): string

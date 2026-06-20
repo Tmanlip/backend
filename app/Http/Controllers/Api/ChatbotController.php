@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use MongoDB\BSON\UTCDateTime;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class ChatbotController extends Controller
@@ -94,6 +95,106 @@ class ChatbotController extends Controller
                 'error' => $error->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    public function askStream(Request $request): StreamedResponse
+    {
+        $validated = $request->validate([
+            'question' => ['required', 'string', 'max:8000'],
+            'category' => ['nullable', 'string', 'in:civil,corporate,criminal,general'],
+            'selectedCategory' => ['nullable', 'string', 'in:civil,corporate,criminal,general'],
+            'practiceArea' => ['nullable', 'string', 'in:civil,corporate,criminal,general'],
+            'language' => ['nullable', 'string', 'in:english,malay,bm,auto'],
+            'sessionId' => ['nullable', 'string', 'max:100'],
+            'persist' => ['nullable', 'boolean'],
+        ]);
+
+        $question = trim((string) $validated['question']);
+        $categoryHint = $validated['category']
+            ?? $validated['selectedCategory']
+            ?? $validated['practiceArea']
+            ?? null;
+        $languageHint = $validated['language'] ?? null;
+        $sessionId = trim((string) ($validated['sessionId'] ?? ''));
+        if ($sessionId === '') {
+            $sessionId = (string) Str::uuid();
+        }
+        $persist = (bool) ($validated['persist'] ?? true);
+
+        $headers = [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache, no-transform',
+            'Connection' => 'keep-alive',
+            'X-Accel-Buffering' => 'no',
+        ];
+
+        return response()->stream(function () use ($question, $categoryHint, $languageHint, $sessionId, $persist): void {
+            $sendEvent = static function (string $event, array $data): void {
+                echo 'event: ' . $event . "\n";
+                echo 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
+                if (function_exists('ob_flush')) {
+                    @ob_flush();
+                }
+                flush();
+            };
+
+            try {
+                $sendEvent('meta', ['sessionId' => $sessionId]);
+
+                $result = $this->chatbotService->askStream(
+                    $question,
+                    is_string($categoryHint) ? $categoryHint : null,
+                    is_string($languageHint) ? $languageHint : null,
+                    static function (string $chunk) use ($sendEvent): void {
+                        $sendEvent('chunk', ['text' => $chunk]);
+                    }
+                );
+
+                if ($persist) {
+                    try {
+                        $this->persistChat([
+                            'sessionId' => $sessionId,
+                            'question' => $question,
+                            'answer' => (string) $result['answer'],
+                            'category' => (string) $result['category'],
+                            'model' => (string) $result['model'],
+                        ]);
+                    } catch (\Throwable $persistError) {
+                        Log::warning('Chatbot stream generated but chat persistence failed.', [
+                            'session_id' => $sessionId,
+                            'category' => (string) ($result['category'] ?? ''),
+                            'model' => (string) ($result['model'] ?? ''),
+                            'error' => $persistError->getMessage(),
+                        ]);
+                    }
+                }
+
+                $sendEvent('done', [
+                    'sessionId' => $sessionId,
+                    'question' => $question,
+                    'answer' => (string) $result['answer'],
+                    'category' => (string) $result['category'],
+                    'model' => (string) $result['model'],
+                    'domainMismatch' => (bool) ($result['domain_mismatch'] ?? false),
+                    'currentCategory' => $result['current_category'] ?? null,
+                    'suggestedCategory' => $result['suggested_category'] ?? null,
+                ]);
+            } catch (\Throwable $error) {
+                Log::error('Chatbot stream failed.', [
+                    'error' => $error->getMessage(),
+                    'exception' => $error::class,
+                    'question_length' => mb_strlen($question),
+                    'category_hint' => is_string($categoryHint) ? $categoryHint : null,
+                    'language_hint' => is_string($languageHint) ? $languageHint : null,
+                    'persist' => $persist,
+                    'session_id' => $sessionId,
+                ]);
+
+                $sendEvent('error', [
+                    'message' => $error->getMessage(),
+                ]);
+            }
+        }, Response::HTTP_OK, $headers);
     }
 
     public function chats(Request $request): JsonResponse

@@ -33,6 +33,7 @@ Route::post('/invoices/generate-number', [InvoiceController::class, 'generateInv
 
 Route::middleware('throttle:api')->group(function () {
     Route::post('/ask', [ChatbotController::class, 'ask']);
+    Route::post('/ask/stream', [ChatbotController::class, 'askStream']);
     Route::get('/chats', [ChatbotController::class, 'chats']);
     Route::get('/db-health', [ChatbotController::class, 'dbHealth']);
     Route::get('/chatbot/health', [ChatbotController::class, 'health']);
