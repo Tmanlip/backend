@@ -90,7 +90,7 @@ class EvaluateAslawModels extends Command
             return self::FAILURE;
         }
 
-        $baseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
+        $baseUrl = $this->resolveOllamaBaseUrl();
         $runId = (string) Str::uuid();
 
         $client = DB::connection('mongodb')->getClient();
@@ -261,6 +261,22 @@ class EvaluateAslawModels extends Command
         $this->line("Results saved to MongoDB collection: {$targetDb}.{$target}");
 
         return self::SUCCESS;
+    }
+
+    private function resolveOllamaBaseUrl(): string
+    {
+        $configured = trim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'));
+        $normalized = preg_replace('/\s+/', '', $configured) ?? '';
+
+        if ($normalized === '') {
+            $normalized = 'http://127.0.0.1:11434';
+        }
+
+        if (! preg_match('/^https?:\/\//i', $normalized)) {
+            $normalized = 'http://' . $normalized;
+        }
+
+        return rtrim($normalized, '/');
     }
 
     /**

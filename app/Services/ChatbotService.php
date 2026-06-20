@@ -85,7 +85,7 @@ class ChatbotService
 
     private function generateWithModel(string $model, string $question, string $language): string
     {
-        $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
+        $ollamaBaseUrl = $this->resolveOllamaBaseUrl();
         $timeoutSeconds = (int) config('ai.chatbot_timeout_seconds', 25);
         $timeoutSeconds = max(8, min($timeoutSeconds, 40));
         $connectTimeoutSeconds = (int) config('ai.ollama_connect_timeout_seconds', 20);
@@ -145,6 +145,22 @@ class ChatbotService
         }
 
         return $answer;
+    }
+
+    private function resolveOllamaBaseUrl(): string
+    {
+        $configured = trim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'));
+        $normalized = preg_replace('/\s+/', '', $configured) ?? '';
+
+        if ($normalized === '') {
+            $normalized = 'http://127.0.0.1:11434';
+        }
+
+        if (! preg_match('/^https?:\/\//i', $normalized)) {
+            $normalized = 'http://' . $normalized;
+        }
+
+        return rtrim($normalized, '/');
     }
 
     private function resolveModel(string $category): string

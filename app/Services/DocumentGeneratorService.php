@@ -47,7 +47,7 @@ class DocumentGeneratorService
 
     public function health(): array
     {
-        $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
+        $ollamaBaseUrl = $this->resolveOllamaBaseUrl();
 
         try {
             /** @var HttpResponse $response */
@@ -83,7 +83,7 @@ class DocumentGeneratorService
             ? 'Respond in formal Malay (Bahasa Melayu) using professional grammar and tone.'
             : 'Respond in formal English using professional grammar and tone.';
 
-        $ollamaBaseUrl = rtrim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'), '/');
+        $ollamaBaseUrl = $this->resolveOllamaBaseUrl();
         $model = (string) config('ai.document_generator_model', 'llama3');
         $timeoutSeconds = (int) config('ai.document_generator_timeout_seconds', 25);
         $timeoutSeconds = max(30, min($timeoutSeconds, 600));
@@ -120,6 +120,22 @@ class DocumentGeneratorService
         }
 
         return $output;
+    }
+
+    private function resolveOllamaBaseUrl(): string
+    {
+        $configured = trim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'));
+        $normalized = preg_replace('/\s+/', '', $configured) ?? '';
+
+        if ($normalized === '') {
+            $normalized = 'http://127.0.0.1:11434';
+        }
+
+        if (! preg_match('/^https?:\/\//i', $normalized)) {
+            $normalized = 'http://' . $normalized;
+        }
+
+        return rtrim($normalized, '/');
     }
 
     public function generateLodDocx(array $formData = []): array
