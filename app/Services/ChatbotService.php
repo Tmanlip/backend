@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class ChatbotService
@@ -160,7 +161,18 @@ class ChatbotService
             $normalized = 'http://' . $normalized;
         }
 
-        return rtrim($normalized, '/');
+        $resolved = rtrim($normalized, '/');
+        $wasNormalized = $configured !== $resolved;
+
+        if ($wasNormalized || (bool) config('ai.chatbot_log_ollama_url', false)) {
+            Log::info('Chatbot Ollama URL resolved.', [
+                'configured' => $configured,
+                'resolved' => $resolved,
+                'was_normalized' => $wasNormalized,
+            ]);
+        }
+
+        return $resolved;
     }
 
     private function resolveModel(string $category): string

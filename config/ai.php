@@ -14,4 +14,5 @@ return [
     'chatbot_temperature' => env('CHATBOT_TEMPERATURE', 0.15),
     'chatbot_keep_alive' => env('CHATBOT_KEEP_ALIVE', '10m'),
     'chatbot_fallback_model' => env('CHATBOT_FALLBACK_MODEL', 'llama3'),
+    'chatbot_log_ollama_url' => env('CHATBOT_LOG_OLLAMA_URL', false),
 ];

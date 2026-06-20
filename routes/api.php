@@ -35,6 +35,7 @@ Route::middleware('throttle:api')->group(function () {
     Route::post('/ask', [ChatbotController::class, 'ask']);
     Route::get('/chats', [ChatbotController::class, 'chats']);
     Route::get('/db-health', [ChatbotController::class, 'dbHealth']);
+    Route::get('/chatbot/health', [ChatbotController::class, 'health']);
 
     Route::prefix('/document-generator')->group(function () {
         Route::get('/health', [DocumentGeneratorController::class, 'health']);

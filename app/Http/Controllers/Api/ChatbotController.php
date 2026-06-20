@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Services\ChatbotService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use MongoDB\BSON\UTCDateTime;
 use Symfony\Component\HttpFoundation\Response;
@@ -49,13 +51,22 @@ class ChatbotController extends Controller
             }
 
             if ((bool) ($validated['persist'] ?? true)) {
-                $this->persistChat([
-                    'sessionId' => $sessionId,
-                    'question' => $question,
-                    'answer' => (string) $result['answer'],
-                    'category' => (string) $result['category'],
-                    'model' => (string) $result['model'],
-                ]);
+                try {
+                    $this->persistChat([
+                        'sessionId' => $sessionId,
+                        'question' => $question,
+                        'answer' => (string) $result['answer'],
+                        'category' => (string) $result['category'],
+                        'model' => (string) $result['model'],
+                    ]);
+                } catch (\Throwable $persistError) {
+                    Log::warning('Chatbot response generated but chat persistence failed.', [
+                        'session_id' => $sessionId,
+                        'category' => (string) ($result['category'] ?? ''),
+                        'model' => (string) ($result['model'] ?? ''),
+                        'error' => $persistError->getMessage(),
+                    ]);
+                }
             }
 
             return response()->json([
@@ -69,6 +80,16 @@ class ChatbotController extends Controller
                 'suggestedCategory' => $result['suggested_category'] ?? null,
             ]);
         } catch (\Throwable $error) {
+            Log::error('Chatbot ask failed.', [
+                'error' => $error->getMessage(),
+                'exception' => $error::class,
+                'question_length' => mb_strlen($question),
+                'category_hint' => is_string($categoryHint) ? $categoryHint : null,
+                'language_hint' => is_string($languageHint) ? $languageHint : null,
+                'persist' => (bool) ($validated['persist'] ?? true),
+                'session_id' => (string) ($validated['sessionId'] ?? ''),
+            ]);
+
             return response()->json([
                 'error' => $error->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
@@ -132,6 +153,108 @@ class ChatbotController extends Controller
                 'error' => $error->getMessage(),
             ], Response::HTTP_SERVICE_UNAVAILABLE);
         }
+    }
+
+    public function health(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'writeProbe' => ['nullable', 'boolean'],
+        ]);
+
+        $shouldWriteProbe = (bool) ($validated['writeProbe'] ?? false);
+        $ollamaConfigured = trim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'));
+        $ollamaResolved = $this->resolveOllamaBaseUrl();
+        $ollamaNormalized = $ollamaConfigured !== $ollamaResolved;
+
+        $checks = [
+            'ollama' => [
+                'status' => 'error',
+                'configured' => $ollamaConfigured,
+                'resolved' => $ollamaResolved,
+                'was_normalized' => $ollamaNormalized,
+            ],
+            'mongo_read' => [
+                'status' => 'error',
+            ],
+            'mongo_write' => [
+                'status' => $shouldWriteProbe ? 'error' : 'skipped',
+            ],
+        ];
+
+        $statusCode = Response::HTTP_OK;
+
+        try {
+            $response = Http::connectTimeout(3)
+                ->timeout(6)
+                ->get($ollamaResolved . '/api/tags');
+
+            if ($response->successful()) {
+                $checks['ollama']['status'] = 'ok';
+                $checks['ollama']['http_status'] = $response->status();
+            } else {
+                $checks['ollama']['status'] = 'error';
+                $checks['ollama']['http_status'] = $response->status();
+                $checks['ollama']['error'] = 'Ollama returned non-success status.';
+                $statusCode = Response::HTTP_SERVICE_UNAVAILABLE;
+            }
+        } catch (\Throwable $error) {
+            $checks['ollama']['status'] = 'error';
+            $checks['ollama']['error'] = $error->getMessage();
+            $statusCode = Response::HTTP_SERVICE_UNAVAILABLE;
+        }
+
+        try {
+            $this->chatCollection()->countDocuments([]);
+            $checks['mongo_read']['status'] = 'ok';
+        } catch (\Throwable $error) {
+            $checks['mongo_read']['status'] = 'error';
+            $checks['mongo_read']['error'] = $error->getMessage();
+            $statusCode = Response::HTTP_SERVICE_UNAVAILABLE;
+        }
+
+        if ($shouldWriteProbe) {
+            try {
+                $collection = $this->chatCollection();
+                $probeId = (string) Str::uuid();
+                $insert = $collection->insertOne([
+                    'probe' => true,
+                    'probeId' => $probeId,
+                    'createdAt' => now()->toDateTimeImmutable(),
+                    'createdAtIso' => now()->toIso8601String(),
+                ]);
+
+                $collection->deleteOne(['_id' => $insert->getInsertedId()]);
+
+                $checks['mongo_write']['status'] = 'ok';
+            } catch (\Throwable $error) {
+                $checks['mongo_write']['status'] = 'error';
+                $checks['mongo_write']['error'] = $error->getMessage();
+                $statusCode = Response::HTTP_SERVICE_UNAVAILABLE;
+            }
+        }
+
+        $overall = $statusCode === Response::HTTP_OK ? 'ok' : 'degraded';
+
+        return response()->json([
+            'status' => $overall,
+            'checks' => $checks,
+        ], $statusCode);
+    }
+
+    private function resolveOllamaBaseUrl(): string
+    {
+        $configured = trim((string) config('ai.ollama_base_url', 'http://127.0.0.1:11434'));
+        $normalized = preg_replace('/\s+/', '', $configured) ?? '';
+
+        if ($normalized === '') {
+            $normalized = 'http://127.0.0.1:11434';
+        }
+
+        if (! preg_match('/^https?:\/\//i', $normalized)) {
+            $normalized = 'http://' . $normalized;
+        }
+
+        return rtrim($normalized, '/');
     }
 
     private function persistChat(array $payload): void
