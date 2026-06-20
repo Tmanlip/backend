@@ -39,7 +39,7 @@ class ChatbotService
             ];
         }
 
-        $generation = $this->generateWithModelFallback($model, $question, $language);
+        $generation = $this->generateWithModelFallback($model, $question, $language, $category);
 
         return [
             'answer' => $generation['answer'],
@@ -83,7 +83,7 @@ class ChatbotService
             ];
         }
 
-        $answer = $this->streamWithModel($model, $question, $language, $onChunk);
+        $answer = $this->streamWithModel($model, $question, $language, $category, $onChunk);
 
         return [
             'answer' => $answer,
@@ -92,7 +92,7 @@ class ChatbotService
         ];
     }
 
-    private function generateWithModelFallback(string $preferredModel, string $question, string $language): array
+    private function generateWithModelFallback(string $preferredModel, string $question, string $language, string $category): array
     {
         $fallbackModel = $this->resolveModel('general');
         $lightweightFallbackModel = trim((string) config('ai.chatbot_fallback_model', 'llama3'));
@@ -106,7 +106,7 @@ class ChatbotService
         foreach ($models as $model) {
             try {
                 return [
-                    'answer' => $this->generateWithModel($model, $question, $language),
+                    'answer' => $this->generateWithModel($model, $question, $language, $category),
                     'model' => $model,
                 ];
             } catch (\Throwable $error) {
@@ -128,9 +128,9 @@ class ChatbotService
         ];
     }
 
-    private function generateWithModel(string $model, string $question, string $language): string
+    private function generateWithModel(string $model, string $question, string $language, string $category): string
     {
-        $settings = $this->buildGenerationSettings($question, $language);
+        $settings = $this->buildGenerationSettings($question, $language, $category);
         $ollamaBaseUrl = $settings['base_url'];
         $timeoutSeconds = $settings['timeout_seconds'];
         $connectTimeoutSeconds = $settings['connect_timeout_seconds'];
@@ -183,9 +183,9 @@ class ChatbotService
     /**
      * @param callable(string):void $onChunk
      */
-    private function streamWithModel(string $model, string $question, string $language, callable $onChunk): string
+    private function streamWithModel(string $model, string $question, string $language, string $category, callable $onChunk): string
     {
-        $settings = $this->buildGenerationSettings($question, $language);
+        $settings = $this->buildGenerationSettings($question, $language, $category);
         $ollamaBaseUrl = $settings['base_url'];
         $timeoutSeconds = $settings['timeout_seconds'];
         $connectTimeoutSeconds = $settings['connect_timeout_seconds'];
@@ -262,14 +262,19 @@ class ChatbotService
     /**
      * @return array{base_url:string,timeout_seconds:int,connect_timeout_seconds:int,retry_count:int,max_tokens:int,temperature:float,prompt:string,keep_alive:string}
      */
-    private function buildGenerationSettings(string $question, string $language): array
+    private function buildGenerationSettings(string $question, string $language, string $category): array
     {
         $languageInstruction = $language === 'malay'
             ? 'Jawab dalam Bahasa Melayu yang jelas dan profesional.'
             : 'Answer in clear professional English.';
 
-        $prompt = "Answer concisely with practical legal information. Keep the response reasonably short unless user asks for detailed explanation. "
+        $formatInstruction = $this->buildFormatInstruction($category, $language);
+
+        $prompt = "Follow the response format exactly and do not omit any numbered section headers. "
+            . "Answer concisely with practical legal information. Keep the response reasonably short unless user asks for detailed explanation. "
             . $languageInstruction
+            . "\n\n"
+            . $formatInstruction
             . "\n\n"
             . $question;
 
@@ -295,6 +300,47 @@ class ChatbotService
             'prompt' => $prompt,
             'keep_alive' => (string) config('ai.chatbot_keep_alive', '10m'),
         ];
+    }
+
+    private function buildFormatInstruction(string $category, string $language): string
+    {
+        $isMalay = $language === 'malay';
+
+        if ($category === 'criminal') {
+            return $isMalay
+                ? "Format jawapan WAJIB (guna susunan ini):\n"
+                    . "1) Scope and safety check: sahkan skop undang-undang jenayah; jika ada risiko segera, utamakan keselamatan.\n"
+                    . "2) Plain explanation: terangkan konsep secara ringkas.\n"
+                    . "3) Relevant law: senaraikan Akta/peruntukan berkaitan dengan ringkas.\n"
+                    . "4) Lawful next steps: langkah neutral dan sah di sisi undang-undang.\n"
+                    . "5) Disclaimer: maklumat umum sahaja, bukan nasihat undang-undang."
+                : "Mandatory answer format (use this exact order):\n"
+                    . "1) Scope and safety check: confirm criminal-law scope and flag urgent safety if present.\n"
+                    . "2) Plain explanation: briefly explain the concept.\n"
+                    . "3) Relevant law: list applicable Acts/provisions briefly.\n"
+                    . "4) Lawful next steps: neutral, lawful next actions.\n"
+                    . "5) Disclaimer: general information only, not legal advice.";
+        }
+
+        if ($category === 'civil' || $category === 'corporate' || $category === 'general') {
+            return $isMalay
+                ? "Format jawapan WAJIB (guna susunan ini):\n"
+                    . "1) Scope check\n"
+                    . "2) Plain explanation\n"
+                    . "3) Relevant law\n"
+                    . "4) Practical next steps\n"
+                    . "5) Disclaimer"
+                : "Mandatory answer format (use this exact order):\n"
+                    . "1) Scope check\n"
+                    . "2) Plain explanation\n"
+                    . "3) Relevant law\n"
+                    . "4) Practical next steps\n"
+                    . "5) Disclaimer";
+        }
+
+        return $isMalay
+            ? "Format jawapan WAJIB (guna susunan ini): 1) Scope check 2) Plain explanation 3) Relevant law 4) Practical next steps 5) Disclaimer"
+            : "Mandatory answer format: 1) Scope check 2) Plain explanation 3) Relevant law 4) Practical next steps 5) Disclaimer";
     }
 
     private function resolveOllamaBaseUrl(): string
