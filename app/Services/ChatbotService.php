@@ -18,8 +18,23 @@ class ChatbotService
         $category = $this->resolveCategory($question, $categoryHint);
         $model = $this->resolveModel($category);
         $language = $this->resolveResponseLanguage($question, $languageHint);
+        $selectedCategory = $this->normalizeCategoryHint($categoryHint);
+        $detectedCategory = $this->resolveCategory($question, null);
 
         if ($this->isFeeOrContactIntent($question)) {
+            if ($selectedCategory !== null) {
+                $detectedCategory = $this->resolveCategory($question, null);
+                if ($detectedCategory !== 'general' && $detectedCategory !== $selectedCategory) {
+                    $answer = $this->buildDomainScopeSwitchResponse($selectedCategory, $detectedCategory, $language);
+
+                    return [
+                        'answer' => $answer,
+                        'category' => $selectedCategory,
+                        'model' => $model,
+                    ];
+                }
+            }
+
             return [
                 'answer' => $this->buildFeeContactReferenceResponse($category, $language),
                 'category' => $category,
@@ -35,6 +50,16 @@ class ChatbotService
             return [
                 'answer' => $greeting,
                 'category' => $category,
+                'model' => $model,
+            ];
+        }
+
+        if ($this->hasDomainMismatch($selectedCategory, $detectedCategory)) {
+            $answer = $this->buildDomainScopeSwitchResponse($selectedCategory, $detectedCategory, $language);
+
+            return [
+                'answer' => $answer,
+                'category' => $selectedCategory,
                 'model' => $model,
             ];
         }
@@ -58,14 +83,23 @@ class ChatbotService
         $category = $this->resolveCategory($question, $categoryHint);
         $model = $this->resolveModel($category);
         $language = $this->resolveResponseLanguage($question, $languageHint);
+        $selectedCategory = $this->normalizeCategoryHint($categoryHint);
+        $detectedCategory = $this->resolveCategory($question, null);
 
         if ($this->isFeeOrContactIntent($question)) {
             $answer = $this->buildFeeContactReferenceResponse($category, $language);
+            if ($selectedCategory !== null) {
+                $detectedCategory = $this->resolveCategory($question, null);
+                if ($detectedCategory !== 'general' && $detectedCategory !== $selectedCategory) {
+                    $answer = $this->buildDomainScopeSwitchResponse($selectedCategory, $detectedCategory, $language);
+                }
+            }
+
             $onChunk($answer);
 
             return [
                 'answer' => $answer,
-                'category' => $category,
+                'category' => $selectedCategory ?? $category,
                 'model' => $model,
             ];
         }
@@ -79,6 +113,17 @@ class ChatbotService
             return [
                 'answer' => $answer,
                 'category' => $category,
+                'model' => $model,
+            ];
+        }
+
+        if ($this->hasDomainMismatch($selectedCategory, $detectedCategory)) {
+            $answer = $this->buildDomainScopeSwitchResponse($selectedCategory, $detectedCategory, $language);
+            $onChunk($answer);
+
+            return [
+                'answer' => $answer,
+                'category' => $selectedCategory,
                 'model' => $model,
             ];
         }
@@ -446,6 +491,17 @@ class ChatbotService
         return 'english';
     }
 
+    private function normalizeCategoryHint(?string $categoryHint): ?string
+    {
+        $hint = strtolower(trim((string) $categoryHint));
+
+        if (in_array($hint, ['civil', 'corporate', 'criminal', 'general'], true)) {
+            return $hint;
+        }
+
+        return null;
+    }
+
     private function containsAny(string $haystack, array $needles): bool
     {
         foreach ($needles as $needle) {
@@ -563,5 +619,28 @@ class ChatbotService
                 . "- Criminal: RM3,000 - RM250,000\n\n"
                 . $contact,
         };
+    }
+
+    private function buildDomainScopeSwitchResponse(string $selectedCategory, string $detectedCategory, string $language): string
+    {
+        $selectedLabel = strtoupper($selectedCategory);
+        $detectedLabel = strtoupper($detectedCategory);
+
+        if ($language === 'malay') {
+            return "Pertanyaan ini berada di luar skop domain semasa anda ({$selectedLabel}).\n"
+                . "Ia nampaknya lebih sesuai untuk domain {$detectedLabel}.\n"
+                . "Sila tukar domain kepada {$detectedLabel} dan hantar semula soalan anda.";
+        }
+
+        return "This request appears outside your current selected domain ({$selectedLabel}).\n"
+            . "It seems more suitable for the {$detectedLabel} domain.\n"
+            . "Please switch your domain to {$detectedLabel} and resend your question.";
+    }
+
+    private function hasDomainMismatch(?string $selectedCategory, string $detectedCategory): bool
+    {
+        return $selectedCategory !== null
+            && $detectedCategory !== 'general'
+            && $detectedCategory !== $selectedCategory;
     }
 }
