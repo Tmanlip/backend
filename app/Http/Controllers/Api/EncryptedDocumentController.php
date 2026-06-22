@@ -1284,6 +1284,69 @@ class EncryptedDocumentController extends Controller
         ]);
     }
 
+    /**
+     * Admin-only: force-purge a FileMetadata record by ID regardless of its type.
+     * Use this to clean up orphaned metadata left after blobs were manually removed
+     * from Azure Storage without going through the app's delete flow.
+     *
+     * DELETE /api/admin/documents/{documentId}/force-purge
+     */
+    public function forceDeleteMetadata(Request $request, string $documentId): JsonResponse
+    {
+        $actor = $request->user();
+        if (!$actor) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $actorRole = strtolower((string) ($actor->role ?? ''));
+        if (!in_array($actorRole, ['admin', 'adminstaff'], true)) {
+            return response()->json(['message' => 'Forbidden: admin only'], 403);
+        }
+
+        $document = FileMetadata::find($documentId);
+        if (!$document) {
+            return response()->json(['message' => 'Metadata record not found'], 404);
+        }
+
+        $blobPath   = (string) ($document->blob_path ?? '');
+        $fileName   = (string) ($document->file_name ?? '');
+        $category   = strtolower((string) ($document->category ?? ''));
+        $caseId     = (int) ($document->case_id ?? 0);
+        $recordType = (string) ($document->type ?? '');
+
+        // Attempt to remove the blob (best-effort; already gone = fine)
+        $blobDeleted = false;
+        if ($blobPath !== '') {
+            try {
+                AzureStorage::delete($blobPath);
+                $blobDeleted = true;
+            } catch (\Throwable) {
+                // blob already removed or unreachable — continue
+            }
+        }
+
+        // Remove the metadata record
+        $document->delete();
+
+        // Keep invoice table and case progress consistent
+        if ($category === 'invoices' && $blobPath !== '') {
+            Invoice::where('blob_path', $blobPath)->delete();
+
+            $case = LawCase::find($caseId);
+            if ($case) {
+                $this->invoiceProgressService->syncCaseProgress($case);
+            }
+        }
+
+        return response()->json([
+            'message'      => 'Metadata record purged successfully',
+            'document_id'  => $documentId,
+            'file_name'    => $fileName,
+            'record_type'  => $recordType,
+            'blob_deleted' => $blobDeleted,
+        ]);
+    }
+
     public function preview(Request $request, string $documentId)
     {
         $resolved = $this->resolveDocumentAndActorAccess($request, $documentId);

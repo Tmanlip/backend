@@ -122,5 +122,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', CheckArchivedUser::class])->g
     Route::delete('/encrypted-documents/{documentId}', [EncryptedDocumentController::class, 'destroy']);
     Route::get('/encrypted-documents/{documentId}/invoice', [EncryptedDocumentController::class, 'invoiceForDocument']);
     Route::put('/encrypted-documents/{documentId}/invoice', [EncryptedDocumentController::class, 'updateInvoiceForDocument']);
+
+    // Admin-only: purge orphaned FileMetadata records (e.g. after manual blob deletion in Azure portal)
+    Route::delete('/admin/documents/{documentId}/force-purge', [EncryptedDocumentController::class, 'forceDeleteMetadata']);
 });
 
