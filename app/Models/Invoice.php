@@ -28,6 +28,7 @@ class Invoice extends Model
         'total_amount',
         'client_name',
         'case_title',
+        'type_of_work',
         'blob_path'
     ];
 

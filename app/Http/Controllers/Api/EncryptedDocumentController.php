@@ -679,6 +679,10 @@ class EncryptedDocumentController extends Controller
 
         $validated = $request->validate([
             'paid_amount' => 'required|numeric|min:0',
+            'payment_stage' => 'sometimes|required|in:initial,first,second,third,final',
+            'type_of_work' => 'sometimes|nullable|string|max:255',
+            'tax' => 'sometimes|nullable|numeric|min:0',
+            'discount' => 'sometimes|nullable|numeric|min:0',
             'new_document_id' => 'nullable|string',
         ]);
 
@@ -736,19 +740,25 @@ class EncryptedDocumentController extends Controller
         $newPaidAmount = (float) $validated['paid_amount'];
         $oldPaidAmount = (float) ($invoice->paid_amount ?? 0);
         $expectedAmount = (float) ($invoice->expected_amount ?? 0);
-        $taxRate = (float) ($invoice->tax ?? 0);
-        $discountRate = (float) ($invoice->discount ?? 0);
+        $updatedStage = strtolower(trim((string) ($validated['payment_stage'] ?? $invoice->payment_stage ?? 'initial')));
+        if (!in_array($updatedStage, ['initial', 'first', 'second', 'third', 'final'], true)) {
+            $updatedStage = 'initial';
+        }
+        $updatedTypeOfWork = trim((string) ($validated['type_of_work'] ?? $document->type_of_work ?? $invoice->type_of_work ?? ''));
+        $updatedTaxRate = array_key_exists('tax', $validated)
+            ? (float) ($validated['tax'] ?? 0)
+            : (float) ($invoice->tax ?? 0);
+        $updatedDiscountRate = array_key_exists('discount', $validated)
+            ? (float) ($validated['discount'] ?? 0)
+            : (float) ($invoice->discount ?? 0);
 
         $calculatedBalance = round(max($expectedAmount - $newPaidAmount, 0.0), 2);
         $calculatedTotalAmount = round(max(
-            $newPaidAmount + (($newPaidAmount * $taxRate) / 100) - (($newPaidAmount * $discountRate) / 100),
+            $newPaidAmount + (($newPaidAmount * $updatedTaxRate) / 100) - (($newPaidAmount * $updatedDiscountRate) / 100),
             0.0
         ), 2);
 
-        $stage = strtolower(trim((string) ($invoice->payment_stage ?? 'initial')));
-        if (!in_array($stage, ['initial', 'first', 'second', 'third', 'final'], true)) {
-            $stage = 'initial';
-        }
+        $stage = $updatedStage;
 
         $stageSummaries = $this->invoiceProgressService->getStageSummaries((int) ($case->caseId ?? 0));
         $stageExpectedAmount = (float) ($stageSummaries[$stage]['expected'] ?? $expectedAmount);
@@ -756,7 +766,7 @@ class EncryptedDocumentController extends Controller
         $adjustedStagePaidAmount = max($stagePaidAmount - $oldPaidAmount + $newPaidAmount, 0.0);
         $calculatedPhaseBalance = round(max($stageExpectedAmount - $adjustedStagePaidAmount, 0.0), 2);
 
-        $documentTypeOfWork = trim((string) ($document->type_of_work ?? ''));
+        $documentTypeOfWork = $updatedTypeOfWork;
         $expectedTypeOfWorkAmount = $this->resolveExpectedAmountForTypeOfWork($case, $stage, $documentTypeOfWork);
         $calculatedTypeOfWorkBalance = $calculatedBalance;
         if ($expectedTypeOfWorkAmount !== null && $expectedTypeOfWorkAmount > 0) {
@@ -790,12 +800,21 @@ class EncryptedDocumentController extends Controller
                 }
 
                 $invoice->paid_amount = $newPaidAmount;
+                $invoice->payment_stage = $updatedStage;
+                $invoice->type_of_work = $updatedTypeOfWork;
+                $invoice->tax = $updatedTaxRate;
+                $invoice->discount = $updatedDiscountRate;
                 $invoice->balance = $calculatedBalance;
                 $invoice->total_amount = $calculatedTotalAmount;
                 if ($newBlobPath !== '') {
                     $invoice->blob_path = $newBlobPath;
                 }
                 $invoice->save();
+
+                $newDocument->invoice_stage = $updatedStage;
+                $newDocument->type_of_work = $updatedTypeOfWork;
+                $newDocument->paid_amount = $newPaidAmount;
+                $newDocument->save();
 
                 $progress = $this->invoiceProgressService->syncCaseProgress($case);
 
@@ -838,7 +857,7 @@ class EncryptedDocumentController extends Controller
                 return response()->json([
                     'message' => 'Invoice updated successfully. New invoice document linked.',
                     'invoice' => $invoice,
-                    'type_of_work' => (string) ($newDocument->type_of_work ?? $document->type_of_work ?? ''),
+                    'type_of_work' => $updatedTypeOfWork,
                     'case_financials' => $caseFinancials,
                     'case_progress' => (float) $progress,
                     'updated_document' => [
@@ -865,14 +884,14 @@ class EncryptedDocumentController extends Controller
             'lawyerID' => (int) ($invoice->lawyerID ?? $case->lawyerID ?? 0),
             'case_id' => (int) ($invoice->case_id ?? $case->caseId ?? 0),
             'clientID' => (int) ($invoice->clientID ?? $case->clientID ?? 0),
-            'payment_stage' => (string) ($invoice->payment_stage ?? 'initial'),
-            'type_of_work' => (string) ($document->type_of_work ?? $invoice->type_of_work ?? ''),
+            'payment_stage' => $updatedStage,
+            'type_of_work' => $updatedTypeOfWork,
             'issue_date' => (string) ($invoice->issue_date ?? now()->toDateString()),
             'due_date' => $invoice->due_date,
             'expected_amount' => (float) ($invoice->expected_amount ?? 0),
             'paid_amount' => $newPaidAmount,
-            'tax' => (float) ($invoice->tax ?? 0),
-            'discount' => (float) ($invoice->discount ?? 0),
+            'tax' => $updatedTaxRate,
+            'discount' => $updatedDiscountRate,
             'balance' => $calculatedTypeOfWorkBalance,
             'phase_balance' => $calculatedPhaseBalance,
             'total_amount' => $calculatedTotalAmount,
@@ -957,8 +976,8 @@ class EncryptedDocumentController extends Controller
                 'dek_version' => 1,
                 'status' => 'active',
                 'recipients' => $recipientEntries,
-                'invoice_stage' => (string) ($invoice->payment_stage ?? ''),
-                'type_of_work' => (string) ($document->type_of_work ?? ''),
+                'invoice_stage' => $updatedStage,
+                'type_of_work' => $updatedTypeOfWork,
                 'expected_amount' => (float) ($invoice->expected_amount ?? 0),
                 'paid_amount' => $newPaidAmount,
             ]);
@@ -966,6 +985,10 @@ class EncryptedDocumentController extends Controller
             DB::beginTransaction();
 
             $invoice->paid_amount = $newPaidAmount;
+            $invoice->payment_stage = $updatedStage;
+            $invoice->type_of_work = $updatedTypeOfWork;
+            $invoice->tax = $updatedTaxRate;
+            $invoice->discount = $updatedDiscountRate;
             $invoice->balance = $calculatedBalance;
             $invoice->total_amount = $calculatedTotalAmount;
             $invoice->blob_path = (string) $newBlobPath;
@@ -1007,7 +1030,7 @@ class EncryptedDocumentController extends Controller
             return response()->json([
                 'message' => 'Invoice updated, old storage/metadata replaced, and new invoice generated successfully',
                 'invoice' => $invoice,
-                'type_of_work' => (string) ($newDocument->type_of_work ?? $document->type_of_work ?? ''),
+                'type_of_work' => $updatedTypeOfWork,
                 'case_financials' => $caseFinancials,
                 'case_progress' => (float) $progress,
                 'updated_document' => [

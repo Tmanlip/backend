@@ -112,6 +112,7 @@ class InvoiceController extends Controller
             'total_amount' => 'sometimes|nullable|numeric',
             'client_name' => 'sometimes|nullable|string|max:255',
             'case_title' => 'sometimes|nullable|string|max:255',
+            'type_of_work' => 'sometimes|nullable|string|max:255',
             'blob_path' => 'sometimes|nullable|string',
             'case_type_fee_json' => 'sometimes|nullable|array',
             'case_type_fee_json.initial' => 'sometimes|array|max:5',
