@@ -296,6 +296,18 @@ class ChatbotService
             }
         }
 
+        $remainingLine = trim($buffer);
+        if ($remainingLine !== '') {
+            $payload = json_decode($remainingLine, true);
+            if (is_array($payload)) {
+                $piece = (string) ($payload['response'] ?? '');
+                if ($piece !== '') {
+                    $answer .= $piece;
+                    $onChunk($piece);
+                }
+            }
+        }
+
         $finalAnswer = trim($answer);
         if ($finalAnswer === '') {
             throw new RuntimeException('Ollama streaming response was empty.');
