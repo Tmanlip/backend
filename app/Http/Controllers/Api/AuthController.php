@@ -193,7 +193,8 @@ class AuthController extends Controller
             'client_id' => (string) config('services.microsoft.client_id'),
             'response_type' => 'code',
             'redirect_uri' => (string) config('services.microsoft.redirect_uri'),
-            'response_mode' => 'query',
+            // Use form_post to avoid oversized callback query strings returning 400 at the edge.
+            'response_mode' => 'form_post',
             'scope' => 'openid profile email User.Read',
             'state' => $stateToken,
             'prompt' => (string) config('services.microsoft.prompt', 'login'),
@@ -204,7 +205,7 @@ class AuthController extends Controller
 
     public function handleEntraCallback(Request $request)
     {
-        $stateToken = (string) $request->query('state', '');
+        $stateToken = (string) $request->input('state', (string) $request->query('state', ''));
         $cacheKey = self::ENTRA_STATE_CACHE_PREFIX . $stateToken;
         $statePayload = Cache::get($cacheKey);
 
@@ -223,7 +224,7 @@ class AuthController extends Controller
             ]));
         }
 
-        $authorizationCode = (string) $request->query('code', '');
+        $authorizationCode = (string) $request->input('code', (string) $request->query('code', ''));
 
         if ($authorizationCode === '') {
             return redirect()->away($this->buildFrontendSsoRedirectUrl([
