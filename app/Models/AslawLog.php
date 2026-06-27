@@ -9,7 +9,7 @@ class AslawLog extends Model
     protected static bool $indexEnsured = false;
 
     protected $connection = 'mongodb';
-    protected $collection = 'aslaw-logs';
+    protected $collection = 'aslaw_logs';
 
     protected $fillable = [
         'user_id',
