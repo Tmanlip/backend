@@ -205,6 +205,14 @@ class AuthController extends Controller
 
     public function handleEntraCallback(Request $request)
     {
+        Log::info('Entra callback received.', [
+            'method' => $request->method(),
+            'content_type' => (string) $request->header('content-type', ''),
+            'has_state' => $request->filled('state') || $request->query->has('state'),
+            'has_code' => $request->filled('code') || $request->query->has('code'),
+            'code_length' => strlen((string) $request->input('code', (string) $request->query('code', ''))),
+        ]);
+
         $stateToken = (string) $request->input('state', (string) $request->query('state', ''));
         $cacheKey = self::ENTRA_STATE_CACHE_PREFIX . $stateToken;
         $statePayload = Cache::get($cacheKey);

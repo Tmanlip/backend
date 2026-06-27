@@ -60,8 +60,8 @@ Route::middleware('throttle:api')->group(function () {
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
 Route::post('/login/mfa-verify', [AuthController::class, 'verifyMfaLogin'])->middleware('throttle:auth-mfa');
 Route::get('/sso/entra/redirect', [AuthController::class, 'redirectToEntra'])->middleware('throttle:auth-login');
-Route::get('/sso/entra/callback', [AuthController::class, 'handleEntraCallback'])->middleware('throttle:auth-login');
-Route::post('/sso/entra/callback', [AuthController::class, 'handleEntraCallback'])->middleware('throttle:auth-login');
+Route::get('/sso/entra/callback', [AuthController::class, 'handleEntraCallback']);
+Route::post('/sso/entra/callback', [AuthController::class, 'handleEntraCallback']);
 Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('throttle:auth-login');
 Route::post('/password/send-otp', [AuthController::class, 'sendOtp'])->middleware('throttle:auth-otp');
 Route::post('/password/verify-code', [AuthController::class, 'verifyOtp'])->middleware('throttle:auth-otp');
