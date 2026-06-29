@@ -59,7 +59,7 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $user = User::where('email', $normalizedEmail)->first();
+        $user = User::whereRaw('LOWER(email) = ?', [$normalizedEmail])->first();
 
         if ($user && !is_null($user->account_locked_at)) {
             return response()->json([
