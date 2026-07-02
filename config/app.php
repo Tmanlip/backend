@@ -58,6 +58,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | Used by transactional emails and redirects that should point users to
+    | the web frontend (for example the login page in account emails).
+    |
+    */
+
+    'frontend_url' => env('APP_FRONTEND_URL', ''),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

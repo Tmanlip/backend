@@ -760,7 +760,7 @@ class EncryptedDocumentController extends Controller
 
         $stage = $updatedStage;
 
-        $stageSummaries = $this->invoiceProgressService->getStageSummaries((int) ($case->caseId ?? 0));
+        $stageSummaries = $this->safeGetStageSummaries((int) ($case->caseId ?? 0));
         $stageExpectedAmount = (float) ($stageSummaries[$stage]['expected'] ?? $expectedAmount);
         $stagePaidAmount = (float) ($stageSummaries[$stage]['paid'] ?? 0);
         $adjustedStagePaidAmount = max($stagePaidAmount - $oldPaidAmount + $newPaidAmount, 0.0);
@@ -770,7 +770,7 @@ class EncryptedDocumentController extends Controller
         $expectedTypeOfWorkAmount = $this->resolveExpectedAmountForTypeOfWork($case, $stage, $documentTypeOfWork);
         $calculatedTypeOfWorkBalance = $calculatedBalance;
         if ($expectedTypeOfWorkAmount !== null && $expectedTypeOfWorkAmount > 0) {
-            $typePaidAmount = $this->resolvePaidAmountForTypeOfWork(
+            $typePaidAmount = $this->safeResolvePaidAmountForTypeOfWork(
                 $case,
                 $stage,
                 $documentTypeOfWork,
@@ -816,7 +816,7 @@ class EncryptedDocumentController extends Controller
                 $newDocument->paid_amount = $newPaidAmount;
                 $newDocument->save();
 
-                $progress = $this->invoiceProgressService->syncCaseProgress($case);
+                $progress = $this->safeSyncCaseProgress($case);
 
                 if ($oldBlobPath !== '' && $oldBlobPath !== $newBlobPath) {
                     try {
@@ -994,7 +994,7 @@ class EncryptedDocumentController extends Controller
             $invoice->blob_path = (string) $newBlobPath;
             $invoice->save();
 
-            $progress = $this->invoiceProgressService->syncCaseProgress($case);
+            $progress = $this->safeSyncCaseProgress($case);
 
             if ($oldBlobPath !== '' && $oldBlobPath !== $newBlobPath) {
                 AzureStorage::delete($oldBlobPath);
@@ -1523,6 +1523,60 @@ class EncryptedDocumentController extends Controller
         }
 
         return round(max($paid, 0.0), 2);
+    }
+
+    private function safeGetStageSummaries(int $caseId): array
+    {
+        try {
+            return $this->invoiceProgressService->getStageSummaries($caseId);
+        } catch (\Throwable $e) {
+            logger()->warning('Falling back to empty stage summaries during invoice update.', [
+                'case_id' => $caseId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'initial' => ['expected' => 0.0, 'paid' => 0.0, 'balance' => 0.0],
+                'first' => ['expected' => 0.0, 'paid' => 0.0, 'balance' => 0.0],
+                'second' => ['expected' => 0.0, 'paid' => 0.0, 'balance' => 0.0],
+                'third' => ['expected' => 0.0, 'paid' => 0.0, 'balance' => 0.0],
+                'final' => ['expected' => 0.0, 'paid' => 0.0, 'balance' => 0.0],
+            ];
+        }
+    }
+
+    private function safeResolvePaidAmountForTypeOfWork(
+        LawCase $case,
+        string $stage,
+        string $typeOfWork,
+        ?string $excludeDocumentId = null
+    ): float {
+        try {
+            return $this->resolvePaidAmountForTypeOfWork($case, $stage, $typeOfWork, $excludeDocumentId);
+        } catch (\Throwable $e) {
+            logger()->warning('Falling back to zero type-of-work paid amount during invoice update.', [
+                'case_id' => (int) ($case->caseId ?? 0),
+                'stage' => $stage,
+                'type_of_work' => $typeOfWork,
+                'error' => $e->getMessage(),
+            ]);
+
+            return 0.0;
+        }
+    }
+
+    private function safeSyncCaseProgress(LawCase $case): float
+    {
+        try {
+            return $this->invoiceProgressService->syncCaseProgress($case);
+        } catch (\Throwable $e) {
+            logger()->warning('Case progress sync skipped after invoice update due to dependency failure.', [
+                'case_id' => (int) ($case->caseId ?? 0),
+                'error' => $e->getMessage(),
+            ]);
+
+            return (float) ($case->progress ?? 0.0);
+        }
     }
 
     private function denyIfArchived(LawCase $case): ?JsonResponse
