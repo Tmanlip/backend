@@ -20,12 +20,15 @@ class InteractionLogController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        $limit = (int) $request->query('limit', 200);
-        $limit = max(1, min($limit, 500));
-
-        $logs = AslawLog::query()
+        $limit = $request->query('limit');
+        $query = AslawLog::query()
             ->orderBy('created_at', 'desc')
-            ->limit($limit)
+        ;
+        if ($limit !== null && (int) $limit > 0) {
+            $query->limit(min((int) $limit, 500));
+        }
+
+        $logs = $query
             ->get([
                 'user_id',
                 'firm_id',
