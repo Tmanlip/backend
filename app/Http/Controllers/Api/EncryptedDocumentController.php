@@ -870,6 +870,29 @@ class EncryptedDocumentController extends Controller
             } catch (\Throwable $e) {
                 DB::rollBack();
 
+                try {
+                    return $this->applyInvoiceUpdateFallback(
+                        $invoice,
+                        $document,
+                        $case,
+                        $newPaidAmount,
+                        $updatedStage,
+                        $updatedTypeOfWork,
+                        $updatedTaxRate,
+                        $updatedDiscountRate,
+                        $calculatedBalance,
+                        $calculatedTotalAmount,
+                        'Document-link update failed; invoice values were saved without replacing document metadata.',
+                        $e
+                    );
+                } catch (\Throwable $fallbackError) {
+                    logger()->error('Invoice fallback update failed after fast-path failure.', [
+                        'document_id' => $documentId,
+                        'invoice_id' => (int) ($invoice->id ?? 0),
+                        'error' => $fallbackError->getMessage(),
+                    ]);
+                }
+
                 return response()->json([
                     'message' => 'Failed to complete invoice update.',
                     'error' => $e->getMessage(),
@@ -1091,6 +1114,30 @@ class EncryptedDocumentController extends Controller
                         'error' => $restoreError->getMessage(),
                     ]);
                 }
+            }
+
+            try {
+                $fallbackDocument = FileMetadata::find($documentId) ?: $document;
+                return $this->applyInvoiceUpdateFallback(
+                    $invoice,
+                    $fallbackDocument,
+                    $case,
+                    $newPaidAmount,
+                    $updatedStage,
+                    $updatedTypeOfWork,
+                    $updatedTaxRate,
+                    $updatedDiscountRate,
+                    $calculatedBalance,
+                    $calculatedTotalAmount,
+                    'Invoice values were saved, but regenerated encrypted document replacement was skipped.',
+                    $e
+                );
+            } catch (\Throwable $fallbackError) {
+                logger()->error('Invoice fallback update failed after replacement failure.', [
+                    'document_id' => $documentId,
+                    'invoice_id' => (int) ($invoice->id ?? 0),
+                    'error' => $fallbackError->getMessage(),
+                ]);
             }
 
             return response()->json([
@@ -1576,6 +1623,74 @@ class EncryptedDocumentController extends Controller
             ]);
 
             return (float) ($case->progress ?? 0.0);
+        }
+    }
+
+    private function applyInvoiceUpdateFallback(
+        Invoice $invoice,
+        FileMetadata $document,
+        LawCase $case,
+        float $newPaidAmount,
+        string $updatedStage,
+        string $updatedTypeOfWork,
+        float $updatedTaxRate,
+        float $updatedDiscountRate,
+        float $calculatedBalance,
+        float $calculatedTotalAmount,
+        string $warningMessage,
+        \Throwable $sourceError
+    ): JsonResponse {
+        DB::beginTransaction();
+        try {
+            $invoice->paid_amount = $newPaidAmount;
+            $invoice->payment_stage = $updatedStage;
+            $invoice->type_of_work = $updatedTypeOfWork;
+            $invoice->tax = $updatedTaxRate;
+            $invoice->discount = $updatedDiscountRate;
+            $invoice->balance = $calculatedBalance;
+            $invoice->total_amount = $calculatedTotalAmount;
+            $invoice->save();
+
+            if ($document && $document->exists) {
+                $document->invoice_stage = $updatedStage;
+                $document->type_of_work = $updatedTypeOfWork;
+                $document->paid_amount = $newPaidAmount;
+                $document->save();
+            }
+
+            $progress = $this->safeSyncCaseProgress($case);
+
+            DB::commit();
+
+            $case->refresh();
+            $invoice->refresh();
+
+            logger()->warning('Invoice update fallback path used; encrypted document regeneration/replacement skipped.', [
+                'invoice_id' => (int) ($invoice->id ?? 0),
+                'document_id' => (string) ($document->getKey() ?? ''),
+                'case_id' => (int) ($case->caseId ?? 0),
+                'source_error' => $sourceError->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Invoice payment updated successfully.',
+                'warning' => $warningMessage,
+                'invoice' => $invoice,
+                'type_of_work' => $updatedTypeOfWork,
+                'case_progress' => (float) $progress,
+                'updated_document' => [
+                    'document_id' => (string) ($document->getKey() ?? ''),
+                    'file_name' => (string) ($document->file_name ?? ''),
+                    'blob_path' => (string) ($document->blob_path ?? ''),
+                    'regenerated' => false,
+                ],
+            ], 200);
+        } catch (\Throwable $fallbackError) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
+            throw $fallbackError;
         }
     }
 
