@@ -168,11 +168,27 @@ class Invoice extends Model
         });
 
         static::saved(function (Invoice $invoice) {
-            app(CaseInvoiceFinancialSyncService::class)->syncCaseFromInvoices((int) $invoice->case_id);
+            try {
+                app(CaseInvoiceFinancialSyncService::class)->syncCaseFromInvoices((int) $invoice->case_id);
+            } catch (\Throwable $e) {
+                logger()->warning('Invoice saved hook sync skipped due to dependency failure.', [
+                    'invoice_id' => (int) ($invoice->id ?? 0),
+                    'case_id' => (int) ($invoice->case_id ?? 0),
+                    'error' => $e->getMessage(),
+                ]);
+            }
         });
 
         static::deleted(function (Invoice $invoice) {
-            app(CaseInvoiceFinancialSyncService::class)->syncCaseFromInvoices((int) $invoice->case_id);
+            try {
+                app(CaseInvoiceFinancialSyncService::class)->syncCaseFromInvoices((int) $invoice->case_id);
+            } catch (\Throwable $e) {
+                logger()->warning('Invoice deleted hook sync skipped due to dependency failure.', [
+                    'invoice_id' => (int) ($invoice->id ?? 0),
+                    'case_id' => (int) ($invoice->case_id ?? 0),
+                    'error' => $e->getMessage(),
+                ]);
+            }
         });
     }
 }
